@@ -74,6 +74,8 @@ namespace Editon
             };
 
             // Find boxes
+            var hLineStarts = new List<Tuple<int, int, bool, LineType>>();
+            var vLineStarts = new List<Tuple<int, int, bool, LineType>>();
             for (int y = 0; y < source.Height; y++)
             {
                 for (int x = 0; x < source.Width; x++)
@@ -134,7 +136,7 @@ namespace Editon
                         Y = y,
                         Width = width,
                         Height = height,
-                        LineTypes = new[] { top, right, bottom, left },
+                        LineTypes = new Dictionary<LineLocation, LineType>(4) { { LineLocation.Top, top }, { LineLocation.Right, right }, { LineLocation.Bottom, bottom }, { LineLocation.Left, left } },
                         Content = Enumerable.Range(y + 1, height - 1).Select(i => new string(source.Chars[i].Subarray(x + 1, width - 1)).Trim()).JoinString("\n")
                     });
 
@@ -147,23 +149,29 @@ namespace Editon
                     {
                         var topOut = source.TopLine(i, y);
                         if (topOut != LineType.None)
-                            processVLine(i, y, true, topOut);
+                            vLineStarts.Add(Tuple.Create(i, y, true, topOut));
                         var bottomOut = source.BottomLine(i, y + height);
                         if (bottomOut != LineType.None)
-                            processVLine(i, y, false, bottomOut);
+                            vLineStarts.Add(Tuple.Create(i, y + height, false, bottomOut));
                     }
                     // Search for outgoing edges along left and right
                     for (int i = y + 1; i < y + height; i++)
                     {
                         var leftOut = source.LeftLine(x, i);
                         if (leftOut != LineType.None)
-                            processHLine(x, i, true, leftOut);
+                            hLineStarts.Add(Tuple.Create(x, i, true, leftOut));
                         var rightOut = source.RightLine(x + width, i);
                         if (rightOut != LineType.None)
-                            processHLine(x, i, false, rightOut);
+                            hLineStarts.Add(Tuple.Create(x + width, i, false, rightOut));
                     }
                 }
             }
+
+            // Process all the lines (starting from the outgoing edges of each box)
+            foreach (var hl in hLineStarts)
+                processHLine(hl.Item1, hl.Item2, hl.Item3, hl.Item4);
+            foreach (var vl in vLineStarts)
+                processVLine(vl.Item1, vl.Item2, vl.Item3, vl.Item4);
 
             // Join up lines that are directly adjacent
             var toRemoveH = new List<HLine>();

@@ -20,26 +20,34 @@ namespace Editon
         static string _filePath;
         static bool _fileChanged;
         static bool _exit;
-        static Scrollbar _horizScroll, _vertScroll;
+        static Scrollbar _horizScroll = new Scrollbar(false), _vertScroll = new Scrollbar(true);
+        static string[] _fileCharsCache;
+
+        static FncFileOptions _fileOptions = new FncFileOptions { HBoxPadding = 1, HBoxSpacing = 1 };
 
         static Box _selectedBox;
         static HLine _selectedHLine;
         static VLine _selectedVLine;
 
+        // X1,Y1 = inclusive; X2,Y2 = exclusive
         static int _invalidatedRegionX1, _invalidatedRegionY1, _invalidatedRegionX2, _invalidatedRegionY2;
         static bool _invalidatedRegion;
 
         [STAThread]
         static int Main(string[] args)
         {
+            try { Console.OutputEncoding = Encoding.UTF8; }
+            catch { }
+
+            if (args.Length == 2 && args[0] == "--post-build-check")
+                return Ut.RunPostBuildChecks(args[1], typeof(EditonProgram).Assembly);
+
             var hadUi = false;
+            var prevBufWidth = Console.BufferWidth;
+            var prevBufHeight = Console.BufferHeight;
             try
             {
-                try { Console.OutputEncoding = Encoding.UTF8; }
-                catch { }
-
-                if (args.Length == 2 && args[0] == "--post-build-check")
-                    return Ut.RunPostBuildChecks(args[1], typeof(EditonProgram).Assembly);
+                Console.SetBufferSize(Console.WindowWidth, Console.WindowHeight);
 
                 if (args.Length > 1)
                 {
@@ -53,6 +61,12 @@ namespace Editon
                     fileNew();
 
                 hadUi = true;
+
+                Console.BackgroundColor = ConsoleColor.DarkBlue;
+                Console.Clear();
+                Console.BackgroundColor = ConsoleColor.Black;
+
+                redrawIfNecessary();
                 while (!_exit)
                 {
                     while (Console.KeyAvailable)
@@ -66,47 +80,130 @@ namespace Editon
             {
                 if (hadUi)
                     Console.Clear();
-                ConsoleUtil.WriteParagraphs("{0/Magenta} {1/Red} ({2/DarkRed})".Color(ConsoleColor.DarkRed).Fmt("Error:", e.Message, e.GetType().FullName), "Error: ".Length);
+                ConsoleUtil.WriteParagraphs("{0/Magenta} {1/Red} ({2})".Color(ConsoleColor.DarkRed).Fmt("Error:", e.Message, e.GetType().FullName), "Error: ".Length);
                 return 1;
+            }
+            finally
+            {
+                Console.SetBufferSize(prevBufWidth, prevBufHeight);
             }
         }
 
         private static void redrawIfNecessary()
         {
+            _horizScroll.Render();
+            _vertScroll.Render();
+
             if (!_invalidatedRegion)
                 return;
             _invalidatedRegion = false;
-            var sb = new StringBuilder();
-            for (int y = _invalidatedRegionY1; y < _invalidatedRegionY2; y++)
+            var w = Console.BufferWidth - 3;   // Vertical scrollbar = 3 chars
+            var h = Console.BufferHeight - 2;   // Horiz scrollbar + Status bar
+            if ((_invalidatedRegionX1 >= _horizScroll.Value + w) || (_invalidatedRegionY1 >= _vertScroll.Value + h) || (_invalidatedRegionX2 <= _horizScroll.Value) || (_invalidatedRegionY2 <= _vertScroll.Value))
+                return;
+            ensureFileChars();
+            for (int bufY = 0; bufY < Console.BufferHeight - 2; bufY++)
             {
-                sb.Clear();
-                for (int x = _invalidatedRegionX1; x < _invalidatedRegionX2; x++)
+                var y = bufY + _vertScroll.Value;
+                if (y < _invalidatedRegionY1 || y > _invalidatedRegionY2)
+                    continue;
+                var s = Math.Max(_invalidatedRegionX1, _horizScroll.Value);
+                var l = Math.Min(_invalidatedRegionX2, _horizScroll.Value + w) - s;
+                Console.CursorLeft = _invalidatedRegionX1 - _horizScroll.Value;
+                Console.CursorTop = y;
+                if (y < _fileCharsCache.Length)
                 {
-                    var box = _file.Boxes.FirstOrDefault(bx => x >= bx.X && x < bx.X + bx.Width && y >= bx.Y && y < bx.Y + bx.Height);
-                    if (box != null)
+                    var str = _fileCharsCache[y].SubstringSafe(s, l).PadRight(l).Color(ConsoleColor.Gray);
+                    if (_selectedBox != null && y >= _selectedBox.Y && y <= _selectedBox.Y + _selectedBox.Height && _selectedBox.X + _selectedBox.Width >= s && _selectedBox.X < s + l)
                     {
-                        var left = x == box.X;
-                        var right = x == box.X + box.Width;
-                        var top = x == box.Y;
-                        var bottom = x == box.Y + box.Height;
-
-                        if ((top || bottom) && (left || right))
-                            // Corner
-                            sb.Append("┌╒╓╔┐╕╖╗└╘╙╚┘╛╜╝"[(bottom ? 8 : 0) + (right ? 4 : 0) + (box.LineTypes[left ? 3 : 1] == LineType.Double ? 2 : 0) + (box.LineTypes[top ? 0 : 2] == LineType.Double ? 1 : 0)]);
-                        else if (top || bottom)
-                            sb.Append(box.LineTypes[top ? 0 : 2] == LineType.Double ? '═' : '─');
-                        else if (left || right)
-                            sb.Append(box.LineTypes[left ? 3 : 1] == LineType.Double ? '║' : '│');
-
-                        continue;
+                        var st = Math.Max(0, _selectedBox.X - s);
+                        str = str.ColorSubstring(st, Math.Min(_selectedBox.Width + 1, l - st), ConsoleColor.Cyan);
                     }
-                    // TODO: lines
+                    ConsoleUtil.Write(str);
                 }
+                else
+                    Console.Write(new string(' ', l));
+            }
+        }
+
+        private static void ensureFileChars()
+        {
+            if (_fileCharsCache != null)
+                return;
+            var dic = new Dictionary<int, Dictionary<int, LineChars>>();
+            foreach (var box in _file.Boxes)
+            {
+                for (int x = 0; x < box.Width; x++)
+                {
+                    dic.BitwiseOrSafe(box.X + x, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Right));
+                    dic.BitwiseOrSafe(box.X + x + 1, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Left));
+                    dic.BitwiseOrSafe(box.X + x, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Right));
+                    dic.BitwiseOrSafe(box.X + x + 1, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Left));
+                }
+                for (int y = 0; y < box.Height; y++)
+                {
+                    dic.BitwiseOrSafe(box.X, box.Y + y, box.LineTypes[LineLocation.Left].At(LineLocation.Bottom));
+                    dic.BitwiseOrSafe(box.X, box.Y + y + 1, box.LineTypes[LineLocation.Left].At(LineLocation.Top));
+                    dic.BitwiseOrSafe(box.X + box.Width, box.Y + y, box.LineTypes[LineLocation.Right].At(LineLocation.Bottom));
+                    dic.BitwiseOrSafe(box.X + box.Width, box.Y + y + 1, box.LineTypes[LineLocation.Right].At(LineLocation.Top));
+                }
+            }
+            foreach (var hl in _file.HLines)
+            {
+                for (int x = hl.X1; x < hl.X2; x++)
+                {
+                    dic.BitwiseOrSafe(x, hl.Y, hl.LineType.At(LineLocation.Right));
+                    dic.BitwiseOrSafe(x + 1, hl.Y, hl.LineType.At(LineLocation.Left));
+                }
+            }
+            foreach (var vl in _file.VLines)
+            {
+                for (int y = vl.Y1; y < vl.Y2; y++)
+                {
+                    dic.BitwiseOrSafe(vl.X, y, vl.LineType.At(LineLocation.Bottom));
+                    dic.BitwiseOrSafe(vl.X, y + 1, vl.LineType.At(LineLocation.Top));
+                }
+            }
+            var sb = new StringBuilder();
+            var width = dic.Keys.Max();
+            var height = dic.Values.SelectMany(val => val.Keys).Max();
+            _fileCharsCache = new string[height + 1];
+            for (int y = 0; y <= height; y++)
+            {
+                for (int x = 0; x <= width; x++)
+                {
+                    var val = dic.Get(x, y, (LineChars) 0);
+                    sb.Append(" │║─└╙═╘╚││║┌├╟╒╞╠║║║╓╟╟╔╠╠─┘╜─┴╨═╧╩┐┤╢┬┼╫╤╪╬╖╢╢╥╫╫╦╬╬═╛╝═╧╩═╧╩╕╡╣╤╪╬╤╪╬╗╣╣╦╬╬╦╬╬"[
+                        ((int) (val & LineChars.TopMask) >> (2 * (int) LineLocation.Top)) +
+                        ((int) (val & LineChars.RightMask) >> (2 * (int) LineLocation.Right)) * 3 +
+                        ((int) (val & LineChars.BottomMask) >> (2 * (int) LineLocation.Bottom)) * 3 * 3 +
+                        ((int) (val & LineChars.LeftMask) >> (2 * (int) LineLocation.Left)) * 3 * 3 * 3
+                    ]);
+                }
+                _fileCharsCache[y] = sb.ToString();
+                sb.Clear();
+            }
+            foreach (var box in _file.Boxes)
+            {
+                var x = box.X + 1 + _fileOptions.HBoxPadding;
+                var y = box.Y + 1;
+                var content = box.Content;
+                while (content.Length > 0)
+                {
+                    var p = content.IndexOf('\n');
+                    if (p == -1)
+                        break;
+                    _fileCharsCache[y] = _fileCharsCache[y].Substring(0, x) + content.Substring(0, p) + _fileCharsCache[y].Substring(x + p);
+                    content = content.Substring(p + 1);
+                    y++;
+                }
+                _fileCharsCache[y] = _fileCharsCache[y].Substring(0, x) + content + _fileCharsCache[y].Substring(x + content.Length);
             }
         }
 
         static void invalidate(int x1, int y1, int x2, int y2)
         {
+            _fileCharsCache = null;
             if (!_invalidatedRegion)
             {
                 _invalidatedRegionX1 = x1;
@@ -141,6 +238,7 @@ namespace Editon
                 _filePath = filePath;
                 _fileChanged = false;
                 _selectedBox = _file.Boxes.FirstOrDefault();
+                invalidate(0, 0, Console.BufferWidth, Console.BufferHeight);
                 updateAfterEdit();
             }
             catch (Exception e)
