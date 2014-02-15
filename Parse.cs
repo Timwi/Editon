@@ -39,7 +39,7 @@ namespace Editon
                         vxs.Add(x);
                     visited[x][y] = true;
                 }
-                result.HLines.Add(new HLine { LineType = lineType, X1 = toLeft ? x : startX, X2 = toLeft ? startX : x, Y = y });
+                result.Items.Add(new HLine { LineType = lineType, X1 = toLeft ? x : startX, X2 = toLeft ? startX : x, Y = y });
                 foreach (var vx in vxs)
                 {
                     var top = source.TopLine(vx, y);
@@ -61,7 +61,7 @@ namespace Editon
                         hys.Add(y);
                     visited[x][y] = true;
                 }
-                result.VLines.Add(new VLine { LineType = lineType, X = x, Y1 = up ? y : startY, Y2 = up ? startY : y });
+                result.Items.Add(new VLine { LineType = lineType, X = x, Y1 = up ? y : startY, Y2 = up ? startY : y });
                 foreach (var hy in hys)
                 {
                     var left = source.LeftLine(x, hy);
@@ -130,7 +130,7 @@ namespace Editon
                     if (top == LineType.Single && right == LineType.Single && bottom == LineType.Single && left == LineType.Single)
                         continue;
 
-                    result.Boxes.Add(new Box
+                    result.Items.Add(new Box
                     {
                         X = x,
                         Y = y,
@@ -173,22 +173,45 @@ namespace Editon
             foreach (var vl in vLineStarts)
                 processVLine(vl.Item1, vl.Item2, vl.Item3, vl.Item4);
 
-            // Join up lines that are directly adjacent
-            var toRemoveH = new List<HLine>();
-            foreach (var pair in result.HLines.UniquePairs())
-                if (pair.Item1.X2 == pair.Item2.X1 && pair.Item1.Y == pair.Item2.Y)
-                {
+            // Join up lines that are directly adjacent or overlapping
+            var toRemove = new List<Item>();
+            foreach (var pair in result.Items.OfType<HLine>().UniquePairs())
+            {
+                if (pair.Item1.Y != pair.Item2.Y)
+                    continue;
+
+                if (pair.Item1.X2 == pair.Item2.X1)
                     pair.Item1.X2 = pair.Item2.X2;
-                    toRemoveH.Add(pair.Item2);
-                }
-            result.HLines.RemoveRange(toRemoveH);
-            var toRemoveV = new List<VLine>();
-            foreach (var pair in result.VLines.UniquePairs())
-                if (pair.Item1.Y2 == pair.Item2.Y1 && pair.Item1.X == pair.Item2.X)
-                {
+                else if (pair.Item1.X1 == pair.Item2.X2)
+                    pair.Item1.X1 = pair.Item2.X1;
+                else if (pair.Item1.X1 == pair.Item2.X1)
+                    pair.Item1.X2 = Math.Max(pair.Item1.X2, pair.Item2.X2);
+                else if (pair.Item1.X2 == pair.Item2.X2)
+                    pair.Item1.X1 = Math.Min(pair.Item1.X1, pair.Item2.X1);
+                else
+                    continue;
+
+                toRemove.Add(pair.Item2);
+            }
+            foreach (var pair in result.Items.OfType<VLine>().UniquePairs())
+            {
+                if (pair.Item1.X != pair.Item2.X)
+                    continue;
+
+                if (pair.Item1.Y2 == pair.Item2.Y1)
                     pair.Item1.Y2 = pair.Item2.Y2;
-                    toRemoveV.Add(pair.Item2);
-                }
+                else if (pair.Item1.Y1 == pair.Item2.Y2)
+                    pair.Item1.Y1 = pair.Item2.Y1;
+                else if (pair.Item1.Y1 == pair.Item2.Y1)
+                    pair.Item1.Y2 = Math.Max(pair.Item1.Y2, pair.Item2.Y2);
+                else if (pair.Item1.Y2 == pair.Item2.Y2)
+                    pair.Item1.Y1 = Math.Min(pair.Item1.Y1, pair.Item2.Y1);
+                else
+                    continue;
+
+                toRemove.Add(pair.Item2);
+            }
+            result.Items.RemoveRange(toRemove);
             return result;
         }
     }

@@ -10,12 +10,6 @@ namespace Editon
     sealed class FncFile
     {
         [ClassifyNotNull]
-        public List<Box> Boxes = new List<Box>();
-
-        [ClassifyNotNull]
-        public List<HLine> HLines = new List<HLine>();
-
-        [ClassifyNotNull]
-        public List<VLine> VLines = new List<VLine>();
+        public List<Item> Items = new List<Item>();
     }
 }

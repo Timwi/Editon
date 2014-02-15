@@ -62,39 +62,33 @@ namespace Editon
 
         private void renderHorizontal()
         {
-            Console.SetCursorPosition(0, Console.BufferHeight - 2);
-            Console.BackgroundColor = ConsoleColor.Gray;
-            ConsoleUtil.Write(" ◄ ".Color(ConsoleColor.Black));
-            Console.BackgroundColor = ConsoleColor.Black;
-            var range = Console.BufferWidth - 3;
+            Console.SetCursorPosition(0, Console.BufferHeight - EditonProgram.EditorBottom);
+            ConsoleUtil.Write("▌◄▐".Color(ConsoleColor.Black, ConsoleColor.Gray));
+            var range = Console.BufferWidth - EditonProgram.EditorLeft - EditonProgram.EditorRight;
             var width = range - 2 * 3;
-            var from = width * Min / (Max - Min + range);
-            var to = width * Max / (Max - Min + range);
-            ConsoleUtil.Write((new string('▒', from) + new string('█', to - from) + new string('▒', width - to)).Color(ConsoleColor.Gray));
+            var from = width * _value / (_max - _min);
+            var to = width * (_value + range) / (_max - _min);
+            ConsoleUtil.Write((new string('▒', from) + new string('█', Math.Min(to - from, width)) + new string('▒', Math.Max(0, width - to))).Color(ConsoleColor.Gray));
             Console.BackgroundColor = ConsoleColor.Gray;
-            ConsoleUtil.Write(" ► ".Color(ConsoleColor.Black));
+            ConsoleUtil.Write("▌►▐".Color(ConsoleColor.Black, ConsoleColor.Gray));
             Console.BackgroundColor = ConsoleColor.Black;
         }
 
         private void renderVertical()
         {
-            Console.SetCursorPosition(Console.BufferWidth - 3, 0);
-            Console.BackgroundColor = ConsoleColor.Gray;
-            ConsoleUtil.Write(" ▲ ".Color(ConsoleColor.Black));
-            Console.BackgroundColor = ConsoleColor.Black;
-            var range = Console.BufferHeight - 2;
+            Console.SetCursorPosition(Console.BufferWidth - EditonProgram.EditorRight, EditonProgram.EditorTop);
+            ConsoleUtil.Write(" ▲ ".Color(ConsoleColor.Black, ConsoleColor.Gray));
+            var range = Console.BufferHeight - EditonProgram.EditorTop - EditonProgram.EditorBottom;
             var height = range - 2 * 1;
-            var from = height * Min / (Max - Min + range);
-            var to = height * Max / (Max - Min + range);
+            var from = height * _value / (_max - _min);
+            var to = height * (_value + range) / (_max - _min);
             for (int i = 0; i < height; i++)
             {
-                Console.SetCursorPosition(Console.BufferWidth - 3, i + 1);
+                Console.SetCursorPosition(Console.BufferWidth - EditonProgram.EditorRight, i + EditonProgram.EditorTop + 1);
                 ConsoleUtil.Write((i < from || i > to ? "▒▒▒" : "███").Color(ConsoleColor.Gray));
             }
-            Console.SetCursorPosition(Console.BufferWidth - 3, Console.BufferHeight - 3);
-            Console.BackgroundColor = ConsoleColor.Gray;
-            ConsoleUtil.Write(" ▼ ".Color(ConsoleColor.Black));
-            Console.BackgroundColor = ConsoleColor.Black;
+            Console.SetCursorPosition(Console.BufferWidth - EditonProgram.EditorRight, Console.BufferHeight - EditonProgram.EditorBottom - 1);
+            ConsoleUtil.Write(" ▼ ".Color(ConsoleColor.Black, ConsoleColor.Gray));
         }
 
         public void Render()

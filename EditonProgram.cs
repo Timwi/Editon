@@ -16,22 +16,29 @@ namespace Editon
 {
     static partial class EditonProgram
     {
+        public const int EditorLeft = 0;
+        public const int EditorRight = 3;
+        public const int EditorTop = 1;
+        public const int EditorBottom = 2;
+
+        static Scrollbar _horizScroll = new Scrollbar(false), _vertScroll = new Scrollbar(true);
+
         static FncFile _file;
         static string _filePath;
         static bool _fileChanged;
         static bool _exit;
-        static Scrollbar _horizScroll = new Scrollbar(false), _vertScroll = new Scrollbar(true);
         static string[] _fileCharsCache;
 
         static FncFileOptions _fileOptions = new FncFileOptions { HBoxPadding = 1, HBoxSpacing = 1 };
 
-        static Box _selectedBox;
-        static HLine _selectedHLine;
-        static VLine _selectedVLine;
+        static Item _selectedItem;
+
+        static bool _editingBox;
+        static int _selectionStart, _selectionLength;
 
         // X1,Y1 = inclusive; X2,Y2 = exclusive
-        static int _invalidatedRegionX1, _invalidatedRegionY1, _invalidatedRegionX2, _invalidatedRegionY2;
         static bool _invalidatedRegion;
+        static int _invalidatedRegionX1, _invalidatedRegionY1, _invalidatedRegionX2, _invalidatedRegionY2;
 
         [STAThread]
         static int Main(string[] args)
@@ -62,9 +69,15 @@ namespace Editon
 
                 hadUi = true;
 
+                var f = new Form();
+                f.Show();
+                f.Hide();
+
                 Console.BackgroundColor = ConsoleColor.DarkBlue;
                 Console.Clear();
-                Console.BackgroundColor = ConsoleColor.Black;
+                Console.ResetColor();
+                Console.SetCursorPosition(Console.BufferWidth - 3, Console.BufferHeight - 2);
+                ConsoleUtil.Write("▓▓▓".Color(ConsoleColor.Gray));
 
                 redrawIfNecessary();
                 while (!_exit)
@@ -97,27 +110,26 @@ namespace Editon
             if (!_invalidatedRegion)
                 return;
             _invalidatedRegion = false;
-            var w = Console.BufferWidth - 3;   // Vertical scrollbar = 3 chars
-            var h = Console.BufferHeight - 2;   // Horiz scrollbar + Status bar
+            var w = Console.BufferWidth - EditonProgram.EditorLeft - EditonProgram.EditorRight;
+            var h = Console.BufferHeight - EditonProgram.EditorTop - EditonProgram.EditorBottom;
             if ((_invalidatedRegionX1 >= _horizScroll.Value + w) || (_invalidatedRegionY1 >= _vertScroll.Value + h) || (_invalidatedRegionX2 <= _horizScroll.Value) || (_invalidatedRegionY2 <= _vertScroll.Value))
                 return;
             ensureFileChars();
-            for (int bufY = 0; bufY < Console.BufferHeight - 2; bufY++)
+            for (int bufY = EditorTop; bufY < Console.BufferHeight - EditorBottom; bufY++)
             {
-                var y = bufY + _vertScroll.Value;
+                var y = bufY + _vertScroll.Value - EditorTop;
                 if (y < _invalidatedRegionY1 || y > _invalidatedRegionY2)
                     continue;
                 var s = Math.Max(_invalidatedRegionX1, _horizScroll.Value);
                 var l = Math.Min(_invalidatedRegionX2, _horizScroll.Value + w) - s;
-                Console.CursorLeft = _invalidatedRegionX1 - _horizScroll.Value;
-                Console.CursorTop = y;
+                Console.SetCursorPosition(_invalidatedRegionX1 - _horizScroll.Value + EditorLeft, bufY);
                 if (y < _fileCharsCache.Length)
                 {
                     var str = _fileCharsCache[y].SubstringSafe(s, l).PadRight(l).Color(ConsoleColor.Gray);
-                    if (_selectedBox != null && y >= _selectedBox.Y && y <= _selectedBox.Y + _selectedBox.Height && _selectedBox.X + _selectedBox.Width >= s && _selectedBox.X < s + l)
+                    if (_selectedItem != null && y >= _selectedItem.PosY1 && y < _selectedItem.PosY2 && s > _selectedItem.PosX1 - l && s < _selectedItem.PosX2)
                     {
-                        var st = Math.Max(0, _selectedBox.X - s);
-                        str = str.ColorSubstring(st, Math.Min(_selectedBox.Width + 1, l - st), ConsoleColor.Cyan);
+                        var st = Math.Max(0, _selectedItem.PosX1 - s);
+                        str = str.ColorSubstringBackground(st, Math.Min(_selectedItem.PosX2 - _selectedItem.PosX1, l - st), ConsoleColor.DarkBlue);
                     }
                     ConsoleUtil.Write(str);
                 }
@@ -131,39 +143,42 @@ namespace Editon
             if (_fileCharsCache != null)
                 return;
             var dic = new Dictionary<int, Dictionary<int, LineChars>>();
-            foreach (var box in _file.Boxes)
-            {
-                for (int x = 0; x < box.Width; x++)
-                {
-                    dic.BitwiseOrSafe(box.X + x, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Right));
-                    dic.BitwiseOrSafe(box.X + x + 1, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Left));
-                    dic.BitwiseOrSafe(box.X + x, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Right));
-                    dic.BitwiseOrSafe(box.X + x + 1, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Left));
-                }
-                for (int y = 0; y < box.Height; y++)
-                {
-                    dic.BitwiseOrSafe(box.X, box.Y + y, box.LineTypes[LineLocation.Left].At(LineLocation.Bottom));
-                    dic.BitwiseOrSafe(box.X, box.Y + y + 1, box.LineTypes[LineLocation.Left].At(LineLocation.Top));
-                    dic.BitwiseOrSafe(box.X + box.Width, box.Y + y, box.LineTypes[LineLocation.Right].At(LineLocation.Bottom));
-                    dic.BitwiseOrSafe(box.X + box.Width, box.Y + y + 1, box.LineTypes[LineLocation.Right].At(LineLocation.Top));
-                }
-            }
-            foreach (var hl in _file.HLines)
-            {
-                for (int x = hl.X1; x < hl.X2; x++)
-                {
-                    dic.BitwiseOrSafe(x, hl.Y, hl.LineType.At(LineLocation.Right));
-                    dic.BitwiseOrSafe(x + 1, hl.Y, hl.LineType.At(LineLocation.Left));
-                }
-            }
-            foreach (var vl in _file.VLines)
-            {
-                for (int y = vl.Y1; y < vl.Y2; y++)
-                {
-                    dic.BitwiseOrSafe(vl.X, y, vl.LineType.At(LineLocation.Bottom));
-                    dic.BitwiseOrSafe(vl.X, y + 1, vl.LineType.At(LineLocation.Top));
-                }
-            }
+            foreach (var item in _file.Items)
+                item.IfType(
+                    (Box box) =>
+                    {
+                        for (int x = 0; x < box.Width; x++)
+                        {
+                            dic.BitwiseOrSafe(box.X + x, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Right));
+                            dic.BitwiseOrSafe(box.X + x + 1, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Left));
+                            dic.BitwiseOrSafe(box.X + x, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Right));
+                            dic.BitwiseOrSafe(box.X + x + 1, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Left));
+                        }
+                        for (int y = 0; y < box.Height; y++)
+                        {
+                            dic.BitwiseOrSafe(box.X, box.Y + y, box.LineTypes[LineLocation.Left].At(LineLocation.Bottom));
+                            dic.BitwiseOrSafe(box.X, box.Y + y + 1, box.LineTypes[LineLocation.Left].At(LineLocation.Top));
+                            dic.BitwiseOrSafe(box.X + box.Width, box.Y + y, box.LineTypes[LineLocation.Right].At(LineLocation.Bottom));
+                            dic.BitwiseOrSafe(box.X + box.Width, box.Y + y + 1, box.LineTypes[LineLocation.Right].At(LineLocation.Top));
+                        }
+                    },
+                    (HLine hl) =>
+                    {
+                        for (int x = hl.X1; x < hl.X2; x++)
+                        {
+                            dic.BitwiseOrSafe(x, hl.Y, hl.LineType.At(LineLocation.Right));
+                            dic.BitwiseOrSafe(x + 1, hl.Y, hl.LineType.At(LineLocation.Left));
+                        }
+                    },
+                    (VLine vl) =>
+                    {
+                        for (int y = vl.Y1; y < vl.Y2; y++)
+                        {
+                            dic.BitwiseOrSafe(vl.X, y, vl.LineType.At(LineLocation.Bottom));
+                            dic.BitwiseOrSafe(vl.X, y + 1, vl.LineType.At(LineLocation.Top));
+                        }
+                    });
+
             var sb = new StringBuilder();
             var width = dic.Keys.Max();
             var height = dic.Values.SelectMany(val => val.Keys).Max();
@@ -183,7 +198,8 @@ namespace Editon
                 _fileCharsCache[y] = sb.ToString();
                 sb.Clear();
             }
-            foreach (var box in _file.Boxes)
+
+            foreach (var box in _file.Items.OfType<Box>())
             {
                 var x = box.X + 1 + _fileOptions.HBoxPadding;
                 var y = box.Y + 1;
@@ -237,7 +253,7 @@ namespace Editon
                 _file = Parse(filePath);
                 _filePath = filePath;
                 _fileChanged = false;
-                _selectedBox = _file.Boxes.FirstOrDefault();
+                _selectedItem = _file.Items.FirstOrDefault();
                 invalidate(0, 0, Console.BufferWidth, Console.BufferHeight);
                 updateAfterEdit();
             }
@@ -262,14 +278,8 @@ namespace Editon
 
         static void updateAfterEdit()
         {
-            _horizScroll.Max = Math.Max(Math.Max(
-                _file.Boxes.Max(b => b.X + b.Width),
-                _file.HLines.Max(hl => hl.X2)),
-                _file.VLines.Max(vl => vl.X));
-            _vertScroll.Max = Math.Max(Math.Max(
-                _file.Boxes.Max(b => b.Y + b.Height),
-                _file.HLines.Max(hl => hl.Y)),
-                _file.VLines.Max(vl => vl.Y2));
+            _horizScroll.Max = _file.Items.Max(i => i.PosX2) + 1;
+            _vertScroll.Max = _file.Items.Max(i => i.PosY2) + 1;
         }
 
         static bool canDestroy()
