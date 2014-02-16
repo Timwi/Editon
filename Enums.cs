@@ -44,4 +44,12 @@ namespace Editon
         BottomMask = 3 << 4,
         LeftMask = 3 << 6
     }
+
+    enum Direction
+    {
+        Up,
+        Right,
+        Down,
+        Left
+    }
 }

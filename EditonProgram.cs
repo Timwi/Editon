@@ -102,7 +102,81 @@ namespace Editon
             }
         }
 
-        private static void redrawIfNecessary()
+        static void fileNew()
+        {
+            if (canDestroy())
+            {
+                _file = new FncFile();
+                _filePath = null;
+                _fileChanged = false;
+                Console.Title = "Untitled — Editon";
+                updateAfterEdit();
+            }
+        }
+
+        static void fileOpen(string filePath, bool doThrow)
+        {
+            try
+            {
+                _file = Parse(filePath);
+                _filePath = filePath;
+                _fileChanged = false;
+                _selectedItem = _file.Items.FirstOrDefault();
+                invalidate(0, 0, Console.BufferWidth, Console.BufferHeight);
+                Console.Title = Path.GetFileName(_filePath) + " — Editon";
+                updateAfterEdit();
+            }
+            catch (Exception e)
+            {
+                if (doThrow)
+                    throw;
+                DlgMessage.Show("{0} ({1})".Fmt(e.Message, e.GetType().Name), "Error", DlgType.Error);
+            }
+        }
+
+        static void moveCursorVert(bool up)
+        {
+            try
+            {
+                var candidate = _file.Items.Where(item =>
+                {
+                    if (item == _selectedItem)
+                        return false;
+                    var x = item.CenterX - _selectedItem.CenterX;
+                    var y = item.CenterY - _selectedItem.CenterY;
+                    return up ? (y <= 2 * x && y <= -2 * x) : (y >= 2 * x && y >= -2 * x);
+                }).MinElement(item => up ? -item.CenterY : item.CenterY);
+                invalidate(_selectedItem);
+                _selectedItem = candidate;
+                invalidate(_selectedItem);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        static void moveCursorHoriz(bool left)
+        {
+            try
+            {
+                var candidate = _file.Items.Where(item =>
+                {
+                    if (item == _selectedItem)
+                        return false;
+                    var x = item.CenterX - _selectedItem.CenterX;
+                    var y = item.CenterY - _selectedItem.CenterY;
+                    return left ? (2 * y >= x && 2 * y <= -x) : (2 * y <= x && 2 * y >= -x);
+                }).MinElement(item => left ? -item.CenterX : item.CenterX);
+                invalidate(_selectedItem);
+                _selectedItem = candidate;
+                invalidate(_selectedItem);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        static void redrawIfNecessary()
         {
             _horizScroll.Render();
             _vertScroll.Render();
@@ -129,7 +203,7 @@ namespace Editon
                     if (_selectedItem != null && y >= _selectedItem.PosY1 && y < _selectedItem.PosY2 && s > _selectedItem.PosX1 - l && s < _selectedItem.PosX2)
                     {
                         var st = Math.Max(0, _selectedItem.PosX1 - s);
-                        str = str.ColorSubstringBackground(st, Math.Min(_selectedItem.PosX2 - _selectedItem.PosX1, l - st), ConsoleColor.DarkBlue);
+                        str = str.ColorSubstring(st, Math.Min(_selectedItem.PosX2 - _selectedItem.PosX1, l - st), ConsoleColor.White, ConsoleColor.DarkBlue);
                     }
                     ConsoleUtil.Write(str);
                 }
@@ -138,7 +212,7 @@ namespace Editon
             }
         }
 
-        private static void ensureFileChars()
+        static void ensureFileChars()
         {
             if (_fileCharsCache != null)
                 return;
@@ -217,6 +291,8 @@ namespace Editon
             }
         }
 
+        static void invalidate(Item item) { invalidate(item.PosX1, item.PosY1, item.PosX2, item.PosY2); }
+
         static void invalidate(int x1, int y1, int x2, int y2)
         {
             _fileCharsCache = null;
@@ -239,41 +315,10 @@ namespace Editon
 
         static void processKey(ConsoleKeyInfo key)
         {
-            if (key.Key == ConsoleKey.Spacebar && key.Modifiers == ConsoleModifiers.Control)
-            {
-                MessageBox.Show("Ctrl+Space!");
-                _exit = true;
-            }
-        }
-
-        static void fileOpen(string filePath, bool doThrow)
-        {
-            try
-            {
-                _file = Parse(filePath);
-                _filePath = filePath;
-                _fileChanged = false;
-                _selectedItem = _file.Items.FirstOrDefault();
-                invalidate(0, 0, Console.BufferWidth, Console.BufferHeight);
-                updateAfterEdit();
-            }
-            catch (Exception e)
-            {
-                if (doThrow)
-                    throw;
-                DlgMessage.Show("{0} ({1})".Fmt(e.Message, e.GetType().Name), "Error", DlgType.Error);
-            }
-        }
-
-        static void fileNew()
-        {
-            if (canDestroy())
-            {
-                _file = new FncFile();
-                _filePath = null;
-                _fileChanged = false;
-                updateAfterEdit();
-            }
+            Dictionary<ConsoleModifiers, Action> dic;
+            Action action;
+            if (KeyBindings.TryGetValue(key.Key, out dic) && dic.TryGetValue(key.Modifiers, out action))
+                action();
         }
 
         static void updateAfterEdit()

@@ -43,9 +43,9 @@ namespace Editon
         public override int CenterX { get { return (X1 + X2) / 2; } }
         public override int CenterY { get { return Y; } }
         public override int PosX1 { get { return X1; } }
-        public override int PosX2 { get { return X2; } }
+        public override int PosX2 { get { return X2 + 1; } }
         public override int PosY1 { get { return Y; } }
-        public override int PosY2 { get { return Y; } }
+        public override int PosY2 { get { return Y + 1; } }
     }
 
     [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
@@ -56,8 +56,8 @@ namespace Editon
         public override int CenterX { get { return X; } }
         public override int CenterY { get { return (Y1 + Y2) / 2; } }
         public override int PosX1 { get { return X; } }
-        public override int PosX2 { get { return X; } }
+        public override int PosX2 { get { return X + 1; } }
         public override int PosY1 { get { return Y1; } }
-        public override int PosY2 { get { return Y2; } }
+        public override int PosY2 { get { return Y2 + 1; } }
     }
 }

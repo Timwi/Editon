@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using RT.Util;
+using RT.Util.Consoles;
 using RT.Util.ExtensionMethods;
 
 namespace Editon
@@ -140,8 +142,8 @@ namespace Editon
                         Content = Enumerable.Range(y + 1, height - 1).Select(i => new string(source.Chars[i].Subarray(x + 1, width - 1)).Trim()).JoinString("\n")
                     });
 
-                    for (int xx = 0; xx < width; xx++)
-                        for (int yy = 0; yy < height; yy++)
+                    for (int xx = 0; xx <= width; xx++)
+                        for (int yy = 0; yy <= height; yy++)
                             visited[x + xx][y + yy] = true;
 
                     // Search for outgoing edges along top and bottom
