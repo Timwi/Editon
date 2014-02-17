@@ -5,8 +5,8 @@ using System.Text;
 
 namespace Editon
 {
-    sealed class FncFileOptions
+    sealed class KeyProcessingInfo
     {
-        public int BoxHSpacing, BoxHPadding;
+        public bool Exit;
     }
 }

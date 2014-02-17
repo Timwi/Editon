@@ -13,6 +13,11 @@ namespace Editon
         public abstract int PosY1 { get; }  // inclusive
         public abstract int PosX2 { get; }  // exclusive
         public abstract int PosY2 { get; }  // exclusive
+
+        public bool Contains(int x, int y)
+        {
+            return x >= PosX1 && x < PosX2 && y >= PosY1 && y < PosY2;
+        }
     }
 
     [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]

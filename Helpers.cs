@@ -23,5 +23,20 @@ namespace Editon
         {
             return (LineChars) ((int) lineType << (2 * (int) location));
         }
+
+        public static Item FirstPreferNonBox(this IEnumerable<Item> source, Func<Item, bool> predicate)
+        {
+            Item found = null;
+            foreach (var item in source)
+            {
+                if (!predicate(item))
+                    continue;
+                if (!(item is Box))
+                    return item;
+                if (found == null)
+                    found = item;
+            }
+            return found;
+        }
     }
 }

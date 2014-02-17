@@ -1,16 +1,12 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading;
 using RT.Util;
-using RT.Util.CommandLine;
 using RT.Util.Consoles;
-using RT.Util.ExtensionMethods;
-using RT.Util.Xml;
-using System.Collections.Generic;
-using System.Windows.Forms;
 using RT.Util.Dialogs;
+using RT.Util.ExtensionMethods;
 
 namespace Editon
 {
@@ -21,17 +17,24 @@ namespace Editon
         public const int EditorTop = 1;
         public const int EditorBottom = 2;
 
+        static FncFileOptions _fileOptions = new FncFileOptions
+        {
+            BoxHPadding = 1,
+            BoxHSpacing = 1
+        };
+
+        public static int EditorWidth { get { return Console.BufferWidth - EditorLeft - EditorRight; } }
+        public static int EditorHeight { get { return Console.BufferHeight - EditorTop - EditorBottom; } }
+
         static Scrollbar _horizScroll = new Scrollbar(false), _vertScroll = new Scrollbar(true);
 
         static FncFile _file;
         static string _filePath;
         static bool _fileChanged;
-        static bool _exit;
         static string[] _fileCharsCache;
 
-        static FncFileOptions _fileOptions = new FncFileOptions { HBoxPadding = 1, HBoxSpacing = 1 };
-
         static Item _selectedItem;
+        static int _cursorX, _cursorY;
 
         static bool _editingBox;
         static int _selectionStart, _selectionLength;
@@ -68,26 +71,28 @@ namespace Editon
                     fileNew();
 
                 hadUi = true;
-
-                var f = new Form();
-                f.Show();
-                f.Hide();
-
                 Console.BackgroundColor = ConsoleColor.DarkBlue;
                 Console.Clear();
                 Console.ResetColor();
                 Console.SetCursorPosition(Console.BufferWidth - 3, Console.BufferHeight - 2);
                 ConsoleUtil.Write("▓▓▓".Color(ConsoleColor.Gray));
 
-                redrawIfNecessary();
-                while (!_exit)
+                while (true)
                 {
-                    while (Console.KeyAvailable)
-                        processKey(Console.ReadKey(intercept: true));
-                    redrawIfNecessary();
-                }
+                    if (!Console.KeyAvailable)
+                        redrawIfNecessary();
 
-                return 0;
+                    var key = Console.ReadKey(intercept: true);
+                    Dictionary<ConsoleModifiers, Action<KeyProcessingInfo>> dic;
+                    Action<KeyProcessingInfo> action;
+                    if (KeyBindings.TryGetValue(key.Key, out dic) && dic.TryGetValue(key.Modifiers, out action))
+                    {
+                        var inf = new KeyProcessingInfo();
+                        action(inf);
+                        if (inf.Exit)
+                            return 0;
+                    }
+                }
             }
             catch (Exception e)
             {
@@ -121,7 +126,6 @@ namespace Editon
                 _file = Parse(filePath);
                 _filePath = filePath;
                 _fileChanged = false;
-                _selectedItem = _file.Items.FirstOrDefault();
                 invalidate(0, 0, Console.BufferWidth, Console.BufferHeight);
                 Console.Title = Path.GetFileName(_filePath) + " — Editon";
                 updateAfterEdit();
@@ -134,81 +138,155 @@ namespace Editon
             }
         }
 
-        static void moveCursorVert(bool up)
+        static void moveCursorUp(KeyProcessingInfo inf) { moveCursor(_cursorX, _cursorY > 0 ? _cursorY - 1 : _cursorY); }
+        static void moveCursorRight(KeyProcessingInfo inf) { moveCursor(_cursorX + 1, _cursorY); }
+        static void moveCursorDown(KeyProcessingInfo inf) { moveCursor(_cursorX, _cursorY + 1); }
+        static void moveCursorLeft(KeyProcessingInfo inf) { moveCursor(_cursorX > 0 ? _cursorX - 1 : _cursorX, _cursorY); }
+
+        static void moveCursorUpFar(KeyProcessingInfo inf)
         {
-            try
-            {
-                var candidate = _file.Items.Where(item =>
-                {
-                    if (item == _selectedItem)
-                        return false;
-                    var x = item.CenterX - _selectedItem.CenterX;
-                    var y = item.CenterY - _selectedItem.CenterY;
-                    return up ? (y <= 2 * x && y <= -2 * x) : (y >= 2 * x && y >= -2 * x);
-                }).MinElement(item => up ? -item.CenterY : item.CenterY);
-                invalidate(_selectedItem);
-                _selectedItem = candidate;
-                invalidate(_selectedItem);
-            }
-            catch (InvalidOperationException)
-            {
-            }
+            moveCursor(
+                _cursorX,
+                _file.Items
+                    .Where(item => item.PosY1 < _cursorY && _cursorX >= item.PosX1 && _cursorX < item.PosX2)
+                    .MaxElementOrDefault(item => item.PosY1)
+                    .NullOr(item => item.PosY1)
+                    ?? 0);
+        }
+        static void moveCursorRightFar(KeyProcessingInfo inf)
+        {
+            moveCursor(
+                _file.Items
+                    .Where(item => item.PosX1 > _cursorX && _cursorY >= item.PosY1 && _cursorY < item.PosY2)
+                    .MinElementOrDefault(item => item.PosX1)
+                    .NullOr(item => item.PosX1)
+                    ?? _file.Items
+                        .Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2)
+                        .MaxElementOrDefault(item => item.PosX2)
+                        .NullOr(item => item.PosX2)
+                        ?? 0,
+                _cursorY);
+        }
+        static void moveCursorDownFar(KeyProcessingInfo inf)
+        {
+            moveCursor(
+                _cursorX,
+                _file.Items
+                    .Where(item => item.PosY1 > _cursorY && _cursorX >= item.PosX1 && _cursorX < item.PosX2)
+                    .MinElementOrDefault(item => item.PosY1)
+                    .NullOr(item => item.PosY1)
+                    ?? _file.Items
+                        .Where(item => _cursorX >= item.PosX1 && _cursorX < item.PosX2)
+                        .MaxElementOrDefault(item => item.PosY2)
+                        .NullOr(item => item.PosY2)
+                        ?? 0);
+        }
+        static void moveCursorLeftFar(KeyProcessingInfo inf)
+        {
+            moveCursor(
+                _file.Items
+                    .Where(item => item.PosX1 < _cursorX && _cursorY >= item.PosY1 && _cursorY < item.PosY2)
+                    .MaxElementOrDefault(item => item.PosX1)
+                    .NullOr(item => item.PosX1)
+                    ?? 0,
+                _cursorY);
+        }
+        static void moveCursorRightEnd(KeyProcessingInfo inf)
+        {
+            moveCursor(
+                _file.Items
+                    .Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2)
+                    .MaxElementOrDefault(item => item.PosX2)
+                    .NullOr(item => item.PosX2)
+                    ?? 0,
+                _cursorY);
+        }
+        static void moveCursorLeftEnd(KeyProcessingInfo inf)
+        {
+            moveCursor(
+                _cursorX == 0 ? _file.Items.Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2).MinElementOrDefault(item => item.PosX1).NullOr(item => item.PosX1) ?? 0 : 0,
+                _cursorY
+            );
         }
 
-        static void moveCursorHoriz(bool left)
+        static void moveCursor(int x, int y)
         {
-            try
+            var prevX = _cursorX;
+            var prevY = _cursorY;
+            var prevSel = _selectedItem;
+
+            _cursorX = x;
+            _cursorY = y;
+
+            _selectedItem =
+                _file.Items.FirstPreferNonBox(item =>
+                    prevX >= item.PosX1 && prevX < item.PosX2 && prevY >= item.PosY1 && prevY < item.PosY2 &&
+                    _cursorX >= item.PosX1 && _cursorX < item.PosX2 && _cursorY >= item.PosY1 && _cursorY < item.PosY2) ??
+                _file.Items.FirstPreferNonBox(item =>
+                    _cursorX >= item.PosX1 && _cursorX < item.PosX2 && _cursorY >= item.PosY1 && _cursorY < item.PosY2);
+
+            if (_selectedItem != prevSel)
             {
-                var candidate = _file.Items.Where(item =>
-                {
-                    if (item == _selectedItem)
-                        return false;
-                    var x = item.CenterX - _selectedItem.CenterX;
-                    var y = item.CenterY - _selectedItem.CenterY;
-                    return left ? (2 * y >= x && 2 * y <= -x) : (2 * y <= x && 2 * y >= -x);
-                }).MinElement(item => left ? -item.CenterX : item.CenterX);
-                invalidate(_selectedItem);
-                _selectedItem = candidate;
+                invalidate(prevSel);
                 invalidate(_selectedItem);
             }
-            catch (InvalidOperationException)
-            {
-            }
+            invalidate(prevX - 1, prevY - 1, prevX + 1, prevY + 1);
+            invalidate(_cursorX - 1, _cursorY - 1, _cursorX + 1, _cursorY + 1);
         }
 
         static void redrawIfNecessary()
         {
+            if (!_invalidatedRegion)
+                return;
+
+            _invalidatedRegion = false;
             _horizScroll.Render();
             _vertScroll.Render();
 
-            if (!_invalidatedRegion)
-                return;
-            _invalidatedRegion = false;
             var w = Console.BufferWidth - EditonProgram.EditorLeft - EditonProgram.EditorRight;
             var h = Console.BufferHeight - EditonProgram.EditorTop - EditonProgram.EditorBottom;
+
             if ((_invalidatedRegionX1 >= _horizScroll.Value + w) || (_invalidatedRegionY1 >= _vertScroll.Value + h) || (_invalidatedRegionX2 <= _horizScroll.Value) || (_invalidatedRegionY2 <= _vertScroll.Value))
                 return;
+
             ensureFileChars();
+
+            _invalidatedRegionX1 = 0;
+            _invalidatedRegionX2 = Console.BufferWidth;
+            Console.CursorVisible = false;
+
             for (int bufY = EditorTop; bufY < Console.BufferHeight - EditorBottom; bufY++)
             {
                 var y = bufY + _vertScroll.Value - EditorTop;
                 if (y < _invalidatedRegionY1 || y > _invalidatedRegionY2)
                     continue;
+
                 var s = Math.Max(_invalidatedRegionX1, _horizScroll.Value);
                 var l = Math.Min(_invalidatedRegionX2, _horizScroll.Value + w) - s;
-                Console.SetCursorPosition(_invalidatedRegionX1 - _horizScroll.Value + EditorLeft, bufY);
+                Console.SetCursorPosition(s - _horizScroll.Value + EditorLeft, bufY);
+
                 if (y < _fileCharsCache.Length)
                 {
                     var str = _fileCharsCache[y].SubstringSafe(s, l).PadRight(l).Color(ConsoleColor.Gray);
-                    if (_selectedItem != null && y >= _selectedItem.PosY1 && y < _selectedItem.PosY2 && s > _selectedItem.PosX1 - l && s < _selectedItem.PosX2)
+                    if (_selectedItem != null && y >= _selectedItem.PosY1 && y < _selectedItem.PosY2 && s + l > _selectedItem.PosX1 && s < _selectedItem.PosX2)
                     {
                         var st = Math.Max(0, _selectedItem.PosX1 - s);
                         str = str.ColorSubstring(st, Math.Min(_selectedItem.PosX2 - _selectedItem.PosX1, l - st), ConsoleColor.White, ConsoleColor.DarkBlue);
                     }
+                    if (_cursorY == y && _cursorX >= s && _cursorX < s + l)
+                        str = str.ColorSubstring(_cursorX - s, 1, ConsoleColor.White, _selectedItem != null && _selectedItem.Contains(_cursorX, _cursorY) ? ConsoleColor.Blue : ConsoleColor.DarkBlue);
                     ConsoleUtil.Write(str);
                 }
                 else
                     Console.Write(new string(' ', l));
+            }
+
+            if (
+                _cursorX >= _horizScroll.Value && _cursorX < _horizScroll.Value + EditorWidth &&
+                _cursorY >= _vertScroll.Value && _cursorY < _vertScroll.Value + EditorHeight)
+            {
+                Console.SetCursorPosition(_cursorX - _horizScroll.Value + EditorLeft, _cursorY - _vertScroll.Value + EditorTop);
+                Console.CursorVisible = true;
             }
         }
 
@@ -275,7 +353,7 @@ namespace Editon
 
             foreach (var box in _file.Items.OfType<Box>())
             {
-                var x = box.X + 1 + _fileOptions.HBoxPadding;
+                var x = box.X + 1 + _fileOptions.BoxHPadding;
                 var y = box.Y + 1;
                 var content = box.Content;
                 while (content.Length > 0)
@@ -291,7 +369,12 @@ namespace Editon
             }
         }
 
-        static void invalidate(Item item) { invalidate(item.PosX1, item.PosY1, item.PosX2, item.PosY2); }
+        static void invalidate(Item item)
+        {
+            if (item != null)
+                invalidate(item.PosX1, item.PosY1, item.PosX2, item.PosY2);
+        }
+        static void invalidateAll() { invalidate(0, 0, _horizScroll.Value + Console.BufferWidth, _vertScroll.Value + Console.BufferHeight); }
 
         static void invalidate(int x1, int y1, int x2, int y2)
         {
@@ -311,14 +394,6 @@ namespace Editon
                 _invalidatedRegionY2 = Math.Max(_invalidatedRegionY2, y2);
             }
             _invalidatedRegion = true;
-        }
-
-        static void processKey(ConsoleKeyInfo key)
-        {
-            Dictionary<ConsoleModifiers, Action> dic;
-            Action action;
-            if (KeyBindings.TryGetValue(key.Key, out dic) && dic.TryGetValue(key.Modifiers, out action))
-                action();
         }
 
         static void updateAfterEdit()
