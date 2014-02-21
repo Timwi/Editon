@@ -138,23 +138,36 @@ namespace Editon
                         Y = y,
                         Width = width,
                         Height = height,
-                        LineTypes = new Dictionary<LineLocation, LineType>(4) { { LineLocation.Top, top }, { LineLocation.Right, right }, { LineLocation.Bottom, bottom }, { LineLocation.Left, left } },
-                        Content = Enumerable.Range(y + 1, height - 1).Select(i => new string(source.Chars[i].Subarray(x + 1, width - 1)).Trim()).JoinString("\n")
+                        LineTypes = new Dictionary<LineLocation, LineType>(4) { { LineLocation.Top, top }, { LineLocation.Right, right }, { LineLocation.Bottom, bottom }, { LineLocation.Left, left } }
                     });
 
                     for (int xx = 0; xx <= width; xx++)
-                        for (int yy = 0; yy <= height; yy++)
-                            visited[x + xx][y + yy] = true;
+                    {
+                        visited[x + xx][y] = true;
+                        visited[x + xx][y + height] = true;
+                    }
+                    for (int yy = 0; yy <= height; yy++)
+                    {
+                        visited[x][y + yy] = true;
+                        visited[x + width][y + yy] = true;
+                    }
 
-                    // Search for outgoing edges along top and bottom
+                    // Search for lines starting along top and bottom
                     for (int i = x + 1; i < x + width; i++)
                     {
                         var topOut = source.TopLine(i, y);
                         if (topOut != LineType.None)
                             vLineStarts.Add(Tuple.Create(i, y, true, topOut));
+                        var topIn = source.BottomLine(i, y);
+                        if (topIn != LineType.None)
+                            vLineStarts.Add(Tuple.Create(i, y, false, topIn));
+
                         var bottomOut = source.BottomLine(i, y + height);
                         if (bottomOut != LineType.None)
                             vLineStarts.Add(Tuple.Create(i, y + height, false, bottomOut));
+                        var bottomIn = source.TopLine(i, y + height);
+                        if (bottomIn != LineType.None)
+                            vLineStarts.Add(Tuple.Create(i, y + height, true, bottomIn));
                     }
                     // Search for outgoing edges along left and right
                     for (int i = y + 1; i < y + height; i++)
@@ -162,9 +175,16 @@ namespace Editon
                         var leftOut = source.LeftLine(x, i);
                         if (leftOut != LineType.None)
                             hLineStarts.Add(Tuple.Create(x, i, true, leftOut));
+                        var leftIn = source.RightLine(x, i);
+                        if (leftIn != LineType.None)
+                            hLineStarts.Add(Tuple.Create(x, i, false, leftIn));
+
                         var rightOut = source.RightLine(x + width, i);
                         if (rightOut != LineType.None)
                             hLineStarts.Add(Tuple.Create(x + width, i, false, rightOut));
+                        var rightIn = source.LeftLine(x + width, i);
+                        if (rightIn != LineType.None)
+                            hLineStarts.Add(Tuple.Create(x + width, i, true, rightIn));
                     }
                 }
             }
@@ -214,6 +234,64 @@ namespace Editon
                 toRemove.Add(pair.Item2);
             }
             result.Items.RemoveRange(toRemove);
+
+            // Determine the location of text lines within every box
+            foreach (var box in result.Items.OfType<Box>())
+            {
+                var curLines = new HashSet<TextLine>();
+                for (int by = 1; by < box.Height; by++)
+                {
+                    var y = box.Y + by;
+                    TextLine curLine = null;
+                    var curLineText = new StringBuilder();
+                    for (int bx = 1; bx < box.Width; bx++)
+                    {
+                        var x = box.X + bx;
+                        if (result.Items.OfType<Line>().Any(l => l.Contains(x, y)))
+                        {
+                            if (curLine != null)
+                            {
+                                curLine.Content = curLineText.ToString();
+                                curLines.Add(curLine);
+                                curLine = null;
+                                curLineText.Clear();
+                            }
+                        }
+                        else
+                        {
+                            if (curLine == null)
+                                curLine = new TextLine { X = x, Y = y };
+                            curLineText.Append(source.Chars[y][x]);
+                        }
+                    }
+                    if (curLine != null)
+                    {
+                        curLine.Content = curLineText.ToString();
+                        curLines.Add(curLine);
+                    }
+                }
+
+                // Group text lines by vertical adjacency
+                var textAreas = new List<TextLine[]>();
+                while (curLines.Count > 0)
+                {
+                    var first = curLines.First();
+                    curLines.Remove(first);
+                    var curGroup = new List<TextLine> { first };
+                    while (true)
+                    {
+                        var next = curLines.FirstOrDefault(one => curGroup.Any(two => (one.Y == two.Y + 1 || one.Y == two.Y - 1) && one.X + one.Content.Length > two.X && one.X < two.X + two.Content.Length));
+                        if (next == null)
+                            break;
+                        curGroup.Add(next);
+                        curLines.Remove(next);
+                    }
+                    curGroup.Sort(CustomComparer<TextLine>.By(l => l.Y).ThenBy(l => l.X));
+                    textAreas.Add(curGroup.ToArray());
+                }
+                box.TextAreas = textAreas.ToArray();
+            }
+
             return result;
         }
     }

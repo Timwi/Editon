@@ -10,19 +10,23 @@ namespace Editon
     {
         static readonly KeyBinding[] _keyBindingsRaw = Ut.NewArray
         (
-            new KeyBinding(ConsoleKey.UpArrow, 0, moveCursorUp),
-            new KeyBinding(ConsoleKey.UpArrow, ConsoleModifiers.Control, moveCursorUpFar),
-            new KeyBinding(ConsoleKey.RightArrow, 0, moveCursorRight),
-            new KeyBinding(ConsoleKey.RightArrow, ConsoleModifiers.Control, moveCursorRightFar),
-            new KeyBinding(ConsoleKey.DownArrow, 0, moveCursorDown),
-            new KeyBinding(ConsoleKey.DownArrow, ConsoleModifiers.Control, moveCursorDownFar),
-            new KeyBinding(ConsoleKey.LeftArrow, 0, moveCursorLeft),
-            new KeyBinding(ConsoleKey.LeftArrow, ConsoleModifiers.Control, moveCursorLeftFar),
+            new KeyBinding(0, ConsoleKey.UpArrow, moveCursorUp),
+            new KeyBinding(0, ConsoleKey.RightArrow, moveCursorRight),
+            new KeyBinding(0, ConsoleKey.DownArrow, moveCursorDown),
+            new KeyBinding(0, ConsoleKey.LeftArrow, moveCursorLeft),
+            new KeyBinding(0, ConsoleKey.Home, moveCursorHome),
+            new KeyBinding(0, ConsoleKey.End, moveCursorEnd),
+            new KeyBinding(0, ConsoleKey.PageUp, moveCursorPageUp),
+            new KeyBinding(0, ConsoleKey.PageDown, moveCursorPageDown),
+            
+            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.Q, inf => { inf.Exit = true; }),
 
-            new KeyBinding(ConsoleKey.End, 0, moveCursorRightEnd),
-            new KeyBinding(ConsoleKey.Home, 0, moveCursorLeftEnd),
-
-            new KeyBinding(ConsoleKey.Q, ConsoleModifiers.Control, inf => { inf.Exit = true; })
+            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.UpArrow, moveCursorUpFar),
+            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.RightArrow, moveCursorRightFar),
+            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.DownArrow, moveCursorDownFar),
+            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.LeftArrow, moveCursorLeftFar),
+            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.Home, moveCursorHomeFar),
+            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.End, moveCursorEndFar)
         );
 
 
@@ -63,13 +67,13 @@ namespace Editon
 
     sealed class KeyBinding
     {
-        public ConsoleKey Key { get; private set; }
         public ConsoleModifiers Modifiers { get; private set; }
+        public ConsoleKey Key { get; private set; }
         public Action<KeyProcessingInfo> Action { get; private set; }
-        public KeyBinding(ConsoleKey key, ConsoleModifiers modifiers, Action<KeyProcessingInfo> action)
+        public KeyBinding(ConsoleModifiers modifiers, ConsoleKey key, Action<KeyProcessingInfo> action)
         {
-            Key = key;
             Modifiers = modifiers;
+            Key = key;
             Action = action;
         }
     }

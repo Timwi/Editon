@@ -33,8 +33,9 @@ namespace Editon
         static bool _fileChanged;
         static string[] _fileCharsCache;
 
-        static Item _selectedItem;
         static int _cursorX, _cursorY;
+        static Item _selectedItem;
+        static int _selectedBoxTextAreaIndex = -1;
 
         static bool _editingBox;
         static int _selectionStart, _selectionLength;
@@ -46,8 +47,7 @@ namespace Editon
         [STAThread]
         static int Main(string[] args)
         {
-            try { Console.OutputEncoding = Encoding.UTF8; }
-            catch { }
+            Console.OutputEncoding = Encoding.UTF8;
 
             if (args.Length == 2 && args[0] == "--post-build-check")
                 return Ut.RunPostBuildChecks(args[1], typeof(EditonProgram).Assembly);
@@ -57,8 +57,6 @@ namespace Editon
             var prevBufHeight = Console.BufferHeight;
             try
             {
-                Console.SetBufferSize(Console.WindowWidth, Console.WindowHeight);
-
                 if (args.Length > 1)
                 {
                     Console.WriteLine("Only one command-line argument allowed (file to open).");
@@ -71,6 +69,8 @@ namespace Editon
                     fileNew();
 
                 hadUi = true;
+                Console.TreatControlCAsInput = true;
+                Console.SetBufferSize(Console.WindowWidth, Console.WindowHeight);
                 Console.BackgroundColor = ConsoleColor.DarkBlue;
                 Console.Clear();
                 Console.ResetColor();
@@ -191,7 +191,14 @@ namespace Editon
                     ?? 0,
                 _cursorY);
         }
-        static void moveCursorRightEnd(KeyProcessingInfo inf)
+        static void moveCursorHome(KeyProcessingInfo inf)
+        {
+            moveCursor(
+                _cursorX == 0 ? _file.Items.Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2).MinElementOrDefault(item => item.PosX1).NullOr(item => item.PosX1) ?? 0 : 0,
+                _cursorY
+            );
+        }
+        static void moveCursorEnd(KeyProcessingInfo inf)
         {
             moveCursor(
                 _file.Items
@@ -201,12 +208,25 @@ namespace Editon
                     ?? 0,
                 _cursorY);
         }
-        static void moveCursorLeftEnd(KeyProcessingInfo inf)
+        static void moveCursorHomeFar(KeyProcessingInfo inf)
         {
-            moveCursor(
-                _cursorX == 0 ? _file.Items.Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2).MinElementOrDefault(item => item.PosX1).NullOr(item => item.PosX1) ?? 0 : 0,
-                _cursorY
-            );
+            moveCursor(0, 0);
+        }
+        static void moveCursorEndFar(KeyProcessingInfo inf)
+        {
+            moveCursor(0, _file.Items.MaxElementOrDefault(i => i.PosY2).NullOr(i => i.PosY2) ?? 0);
+        }
+        static void moveCursorPageUp(KeyProcessingInfo inf)
+        {
+            _vertScroll.Value = Math.Max(0, _vertScroll.Value - EditorHeight);
+            moveCursor(_cursorX, Math.Max(0, _cursorY - EditorHeight));
+            invalidateAll();
+        }
+        static void moveCursorPageDown(KeyProcessingInfo inf)
+        {
+            _vertScroll.Value += EditorHeight;
+            moveCursor(_cursorX, _cursorY + EditorHeight);
+            invalidateAll();
         }
 
         static void moveCursor(int x, int y)
@@ -214,6 +234,7 @@ namespace Editon
             var prevX = _cursorX;
             var prevY = _cursorY;
             var prevSel = _selectedItem;
+            var prevEditingTextAreaIndex = _selectedBoxTextAreaIndex;
 
             _cursorX = x;
             _cursorY = y;
@@ -225,7 +246,33 @@ namespace Editon
                 _file.Items.FirstPreferNonBox(item =>
                     _cursorX >= item.PosX1 && _cursorX < item.PosX2 && _cursorY >= item.PosY1 && _cursorY < item.PosY2);
 
-            if (_selectedItem != prevSel)
+            if (_selectedItem is Box)
+                _selectedBoxTextAreaIndex = ((Box) _selectedItem).TextAreas.IndexOf(area => area.Any(line => _cursorY == line.Y && _cursorX >= line.X && _cursorX < line.X + line.Content.Length));
+            else
+                _selectedBoxTextAreaIndex = -1;
+
+            while (_cursorX >= _horizScroll.Value + EditorWidth)
+            {
+                _horizScroll.Value += 20;
+                invalidateAll();
+            }
+            while (_cursorX < _horizScroll.Value)
+            {
+                _horizScroll.Value = Math.Max(0, _horizScroll.Value - 20);
+                invalidateAll();
+            }
+            while (_cursorY >= _vertScroll.Value + EditorHeight)
+            {
+                _vertScroll.Value += 10;
+                invalidateAll();
+            }
+            while (_cursorY < _vertScroll.Value)
+            {
+                _vertScroll.Value = Math.Max(0, _vertScroll.Value - 10);
+                invalidateAll();
+            }
+
+            if (_selectedItem != prevSel || _selectedBoxTextAreaIndex != prevEditingTextAreaIndex)
             {
                 invalidate(prevSel);
                 invalidate(_selectedItem);
@@ -273,8 +320,15 @@ namespace Editon
                         var st = Math.Max(0, _selectedItem.PosX1 - s);
                         str = str.ColorSubstring(st, Math.Min(_selectedItem.PosX2 - _selectedItem.PosX1, l - st), ConsoleColor.White, ConsoleColor.DarkBlue);
                     }
+                    if (_selectedItem != null && _selectedBoxTextAreaIndex != -1)
+                        foreach (var line in ((Box) _selectedItem).TextAreas[_selectedBoxTextAreaIndex])
+                            if (line.Y == y && line.X < s + l && line.X + line.Content.Length >= s)
+                            {
+                                var st = Math.Max(0, line.X - s);
+                                str = str.ColorSubstringBackground(st, Math.Min(line.Content.Length, l - st), ConsoleColor.DarkCyan);
+                            }
                     if (_cursorY == y && _cursorX >= s && _cursorX < s + l)
-                        str = str.ColorSubstring(_cursorX - s, 1, ConsoleColor.White, _selectedItem != null && _selectedItem.Contains(_cursorX, _cursorY) ? ConsoleColor.Blue : ConsoleColor.DarkBlue);
+                        str = str.ColorSubstringBackground(_cursorX - s, 1, _selectedBoxTextAreaIndex != -1 ? ConsoleColor.Cyan : _selectedItem != null ? ConsoleColor.Blue : ConsoleColor.DarkBlue);
                     ConsoleUtil.Write(str);
                 }
                 else
@@ -352,21 +406,9 @@ namespace Editon
             }
 
             foreach (var box in _file.Items.OfType<Box>())
-            {
-                var x = box.X + 1 + _fileOptions.BoxHPadding;
-                var y = box.Y + 1;
-                var content = box.Content;
-                while (content.Length > 0)
-                {
-                    var p = content.IndexOf('\n');
-                    if (p == -1)
-                        break;
-                    _fileCharsCache[y] = _fileCharsCache[y].Substring(0, x) + content.Substring(0, p) + _fileCharsCache[y].Substring(x + p);
-                    content = content.Substring(p + 1);
-                    y++;
-                }
-                _fileCharsCache[y] = _fileCharsCache[y].Substring(0, x) + content + _fileCharsCache[y].Substring(x + content.Length);
-            }
+                foreach (var area in box.TextAreas)
+                    foreach (var line in area)
+                        _fileCharsCache[line.Y] = _fileCharsCache[line.Y].Substring(0, line.X) + line.Content + _fileCharsCache[line.Y].Substring(line.X + line.Content.Length);
         }
 
         static void invalidate(Item item)

@@ -25,7 +25,9 @@ namespace Editon
     {
         public int X, Y;
         public int Width, Height;
-        public string Content;
+        public TextLine[][] TextAreas;
+        public int LeftPadding, RightPadding;
+        public bool AutoWrap;
 
         [ClassifyNotNull]
         public Dictionary<LineLocation, LineType> LineTypes = new Dictionary<LineLocation, LineType>(4);
@@ -40,8 +42,10 @@ namespace Editon
         public override int PosY2 { get { return Y + Height + 1; } }
     }
 
+    abstract class Line : Item { }
+
     [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
-    sealed class HLine : Item
+    sealed class HLine : Line
     {
         public int X1, X2, Y;
         public LineType LineType;
@@ -54,7 +58,7 @@ namespace Editon
     }
 
     [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
-    sealed class VLine : Item
+    sealed class VLine : Line
     {
         public int X, Y1, Y2;
         public LineType LineType;
@@ -64,5 +68,12 @@ namespace Editon
         public override int PosX2 { get { return X + 1; } }
         public override int PosY1 { get { return Y1; } }
         public override int PosY2 { get { return Y2 + 1; } }
+    }
+
+    sealed class TextLine
+    {
+        public int X;
+        public int Y;
+        public string Content;
     }
 }
