@@ -5,6 +5,13 @@ using System.Text;
 
 namespace Editon
 {
+    enum EditMode
+    {
+        Cursor,
+        EditingBoxText,
+        Moving
+    }
+
     enum LineType
     {
         None = 0,

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using RT.Util.ExtensionMethods;
 using RT.Util.Serialization;
 
@@ -18,6 +19,9 @@ namespace Editon
         {
             return x >= PosX1 && x < PosX2 && y >= PosY1 && y < PosY2;
         }
+
+        public abstract void Move(Direction direction);
+        public abstract void Adjust(Direction end, Direction intoDirection);
     }
 
     [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
@@ -26,8 +30,6 @@ namespace Editon
         public int X, Y;
         public int Width, Height;
         public TextLine[][] TextAreas;
-        public int LeftPadding, RightPadding;
-        public bool AutoWrap;
 
         [ClassifyNotNull]
         public Dictionary<LineLocation, LineType> LineTypes = new Dictionary<LineLocation, LineType>(4);
@@ -40,6 +42,57 @@ namespace Editon
         public override int PosX2 { get { return X + Width + 1; } }
         public override int PosY1 { get { return Y; } }
         public override int PosY2 { get { return Y + Height + 1; } }
+
+        public override void Move(Direction direction)
+        {
+            EditonProgram.Invalidate(this);
+            var ox = 0;
+            var oy = 0;
+            switch (direction)
+            {
+                case Direction.Up: oy = -1; break;
+                case Direction.Right: ox = 1; break;
+                case Direction.Down: oy = 1; break;
+                case Direction.Left: ox = -1; break;
+            }
+            X += ox;
+            Y += oy;
+            for (int i = 0; i < TextAreas.Length; i++)
+                for (int j = 0; j < TextAreas[i].Length; j++)
+                {
+                    TextAreas[i][j].X += ox;
+                    TextAreas[i][j].Y += oy;
+                }
+            EditonProgram.Invalidate(this);
+        }
+
+        private Action getUndo()
+        {
+            var x = X;
+            var y = Y;
+            var width = Width;
+            var height = Height;
+            var textXs = TextAreas.Select(lines => lines.Select(line => line.X).ToArray()).ToArray();
+            var textYs = TextAreas.Select(lines => lines.Select(line => line.Y).ToArray()).ToArray();
+            return () =>
+            {
+                X = x;
+                Y = y;
+                Width = width;
+                Height = height;
+                for (int i = 0; i < TextAreas.Length; i++)
+                    for (int j = 0; j < TextAreas[i].Length; j++)
+                    {
+                        TextAreas[i][j].X = textXs[i][j];
+                        TextAreas[i][j].Y = textYs[i][j];
+                    }
+            };
+        }
+
+        public override void Adjust(Direction end, Direction intoDirection)
+        {
+            throw new InvalidOperationException("Adjust invalid on boxes.");
+        }
     }
 
     abstract class Line : Item { }
@@ -55,6 +108,60 @@ namespace Editon
         public override int PosX2 { get { return X2 + 1; } }
         public override int PosY1 { get { return Y; } }
         public override int PosY2 { get { return Y + 1; } }
+
+        public override void Move(Direction direction)
+        {
+            EditonProgram.Invalidate(this);
+            switch (direction)
+            {
+                case Direction.Up: Y--; break;
+                case Direction.Right: X1++; X2++; break;
+                case Direction.Down: Y++; break;
+                case Direction.Left: X1--; X2--; break;
+            }
+            EditonProgram.Invalidate(this);
+        }
+
+        private Action getUndo()
+        {
+            var x1 = X1;
+            var x2 = X2;
+            var y = Y;
+            return () =>
+            {
+                X1 = x1;
+                X2 = x2;
+                Y = y;
+            };
+        }
+
+        public override void Adjust(Direction end, Direction intoDirection)
+        {
+            switch (end)
+            {
+                case Direction.Up:
+                case Direction.Down:
+                    throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
+
+                case Direction.Right:
+                    if (intoDirection == Direction.Left)
+                        X2--;
+                    else if (intoDirection == Direction.Right)
+                        X2++;
+                    else
+                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
+                    break;
+
+                case Direction.Left:
+                    if (intoDirection == Direction.Left)
+                        X1--;
+                    else if (intoDirection == Direction.Right)
+                        X1++;
+                    else
+                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
+                    break;
+            }
+        }
     }
 
     [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
@@ -68,6 +175,60 @@ namespace Editon
         public override int PosX2 { get { return X + 1; } }
         public override int PosY1 { get { return Y1; } }
         public override int PosY2 { get { return Y2 + 1; } }
+
+        public override void Move(Direction direction)
+        {
+            EditonProgram.Invalidate(this);
+            switch (direction)
+            {
+                case Direction.Up: Y1--; Y2--; break;
+                case Direction.Right: X++; break;
+                case Direction.Down: Y1++; Y2++; break;
+                case Direction.Left: X--; break;
+            }
+            EditonProgram.Invalidate(this);
+        }
+
+        private Action getUndo()
+        {
+            var x = X;
+            var y1 = Y1;
+            var y2 = Y2;
+            return () =>
+            {
+                X = x;
+                Y1 = y1;
+                Y2 = y2;
+            };
+        }
+
+        public override void Adjust(Direction edge, Direction intoDirection)
+        {
+            switch (edge)
+            {
+                case Direction.Left:
+                case Direction.Right:
+                    throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
+
+                case Direction.Up:
+                    if (intoDirection == Direction.Up)
+                        Y1--;
+                    else if (intoDirection == Direction.Down)
+                        Y1++;
+                    else
+                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
+                    break;
+
+                case Direction.Down:
+                    if (intoDirection == Direction.Up)
+                        Y2--;
+                    else if (intoDirection == Direction.Down)
+                        Y2++;
+                    else
+                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
+                    break;
+            }
+        }
     }
 
     sealed class TextLine

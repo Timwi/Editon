@@ -10,38 +10,49 @@ namespace Editon
     {
         static readonly KeyBinding[] _keyBindingsRaw = Ut.NewArray
         (
-            new KeyBinding(0, ConsoleKey.UpArrow, moveCursorUp),
-            new KeyBinding(0, ConsoleKey.RightArrow, moveCursorRight),
-            new KeyBinding(0, ConsoleKey.DownArrow, moveCursorDown),
-            new KeyBinding(0, ConsoleKey.LeftArrow, moveCursorLeft),
-            new KeyBinding(0, ConsoleKey.Home, moveCursorHome),
-            new KeyBinding(0, ConsoleKey.End, moveCursorEnd),
-            new KeyBinding(0, ConsoleKey.PageUp, moveCursorPageUp),
-            new KeyBinding(0, ConsoleKey.PageDown, moveCursorPageDown),
-            
-            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.Q, inf => { inf.Exit = true; }),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.Spacebar, enterMoveMode),
 
-            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.UpArrow, moveCursorUpFar),
-            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.RightArrow, moveCursorRightFar),
-            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.DownArrow, moveCursorDownFar),
-            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.LeftArrow, moveCursorLeftFar),
-            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.Home, moveCursorHomeFar),
-            new KeyBinding(ConsoleModifiers.Control, ConsoleKey.End, moveCursorEndFar)
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.UpArrow, moveCursorUp),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.RightArrow, moveCursorRight),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.DownArrow, moveCursorDown),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.LeftArrow, moveCursorLeft),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.Home, moveCursorHome),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.End, moveCursorEnd),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.PageUp, moveCursorPageUp),
+            new KeyBinding(EditMode.Cursor, 0, ConsoleKey.PageDown, moveCursorPageDown),
+
+            new KeyBinding(EditMode.Cursor, ConsoleModifiers.Control, ConsoleKey.Q, exit),
+
+            new KeyBinding(EditMode.Cursor, ConsoleModifiers.Control, ConsoleKey.UpArrow, moveCursorUpFar),
+            new KeyBinding(EditMode.Cursor, ConsoleModifiers.Control, ConsoleKey.RightArrow, moveCursorRightFar),
+            new KeyBinding(EditMode.Cursor, ConsoleModifiers.Control, ConsoleKey.DownArrow, moveCursorDownFar),
+            new KeyBinding(EditMode.Cursor, ConsoleModifiers.Control, ConsoleKey.LeftArrow, moveCursorLeftFar),
+            new KeyBinding(EditMode.Cursor, ConsoleModifiers.Control, ConsoleKey.Home, moveCursorHomeFar),
+            new KeyBinding(EditMode.Cursor, ConsoleModifiers.Control, ConsoleKey.End, moveCursorEndFar),
+
+
+            new KeyBinding(EditMode.Moving, 0, ConsoleKey.Escape, leaveMoveMode),
+            new KeyBinding(EditMode.Moving, 0, ConsoleKey.UpArrow, moveUp),
+            new KeyBinding(EditMode.Moving, 0, ConsoleKey.RightArrow, moveRight),
+            new KeyBinding(EditMode.Moving, 0, ConsoleKey.DownArrow, moveDown),
+            new KeyBinding(EditMode.Moving, 0, ConsoleKey.LeftArrow, moveLeft)
         );
 
 
         // ────────────────────────────────────────────────────────────────────────────
 
-        static Dictionary<ConsoleKey, Dictionary<ConsoleModifiers, Action<KeyProcessingInfo>>> _keyBindingsCache;
-        static Dictionary<ConsoleKey, Dictionary<ConsoleModifiers, Action<KeyProcessingInfo>>> KeyBindings
+        static Dictionary<EditMode, Dictionary<ConsoleKey, Dictionary<ConsoleModifiers, Action>>> _keyBindingsCache;
+        static Dictionary<EditMode, Dictionary<ConsoleKey, Dictionary<ConsoleModifiers, Action>>> KeyBindings
         {
             get
             {
                 if (_keyBindingsCache == null)
                 {
                     _keyBindingsCache = _keyBindingsRaw
-                        .GroupBy(tup => tup.Key)
-                        .ToDictionary(gr => gr.Key, gr => gr.ToDictionary(tup => tup.Modifiers, tup => tup.Action));
+                        .GroupBy(binding => binding.Mode)
+                        .ToDictionary(gr => gr.Key, gr => gr
+                            .GroupBy(binding => binding.Key)
+                            .ToDictionary(gr2 => gr2.Key, gr2 => gr2.ToDictionary(binding => binding.Modifiers, binding => binding.Action)));
                 }
                 return _keyBindingsCache;
             }
@@ -51,15 +62,14 @@ namespace Editon
         {
             foreach (var pair in _keyBindingsRaw.UniquePairs())
             {
-                if (pair.Item1.Key == pair.Item2.Key && pair.Item1.Modifiers == pair.Item2.Modifiers)
+                if (pair.Item1.Mode == pair.Item2.Mode && pair.Item1.Key == pair.Item2.Key && pair.Item1.Modifiers == pair.Item2.Modifiers)
                 {
-                    var tok = "ConsoleKey.{0}, {1}".Fmt(pair.Item1.Key, pair.Item1.Modifiers == 0 ? "0" : "ConsoleModifiers." + pair.Item1.Modifiers);
-                    rep.Error(@"There are two key bindings for {0}.".Fmt(
-                        pair.Item1.Modifiers == 0 ? pair.Item1.Key.ToString() : pair.Item1.Modifiers + "+" + pair.Item1.Key
+                    var tok = "EditMode.{0}, {1}, ConsoleKey.{2}".Fmt(pair.Item1.Mode, pair.Item1.Modifiers == 0 ? "0" : "ConsoleModifiers." + pair.Item1.Modifiers, pair.Item1.Key);
+                    rep.Error(@"There are two key bindings for {0} in mode {1}.".Fmt(
+                        pair.Item1.Modifiers == 0 ? pair.Item1.Key.ToString() : pair.Item1.Modifiers + "+" + pair.Item1.Key,
+                        pair.Item1.Mode
                     ), "_keyBindingsRaw", tok);
-                    rep.Error(@"    -- Second use is here.".Fmt(
-                        pair.Item1.Modifiers == 0 ? pair.Item1.Key.ToString() : pair.Item1.Modifiers + "+" + pair.Item1.Key
-                    ), "_keyBindingsRaw", tok, tok);
+                    rep.Error(@"    -- Second use is here.", "_keyBindingsRaw", tok, tok);
                 }
             }
         }
@@ -67,11 +77,13 @@ namespace Editon
 
     sealed class KeyBinding
     {
+        public EditMode Mode { get; private set; }
         public ConsoleModifiers Modifiers { get; private set; }
         public ConsoleKey Key { get; private set; }
-        public Action<KeyProcessingInfo> Action { get; private set; }
-        public KeyBinding(ConsoleModifiers modifiers, ConsoleKey key, Action<KeyProcessingInfo> action)
+        public Action Action { get; private set; }
+        public KeyBinding(EditMode mode, ConsoleModifiers modifiers, ConsoleKey key, Action action)
         {
+            Mode = mode;
             Modifiers = modifiers;
             Key = key;
             Action = action;

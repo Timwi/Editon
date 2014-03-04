@@ -64,8 +64,8 @@ namespace Editon
         {
             Console.SetCursorPosition(0, Console.BufferHeight - EditonProgram.EditorBottom);
             ConsoleUtil.Write("▌◄▐".Color(ConsoleColor.Black, ConsoleColor.Gray));
-            var range = Console.BufferWidth - EditonProgram.EditorLeft - EditonProgram.EditorRight;
-            var max = Math.Max(_max, _value);
+            var range = EditonProgram.EditorWidth;
+            var max = Math.Max(_max, _value + range);
             var width = range - 2 * 3;
             var from = width * _value / (max - _min);
             var to = width * (_value + range) / (max - _min);
@@ -79,8 +79,8 @@ namespace Editon
         {
             Console.SetCursorPosition(Console.BufferWidth - EditonProgram.EditorRight, EditonProgram.EditorTop);
             ConsoleUtil.Write(" ▲ ".Color(ConsoleColor.Black, ConsoleColor.Gray));
-            var range = Console.BufferHeight - EditonProgram.EditorTop - EditonProgram.EditorBottom;
-            var max = Math.Max(_max, _value);
+            var range = EditonProgram.EditorHeight;
+            var max = Math.Max(_max, _value + range);
             var height = range - 2 * 1;
             var from = height * _value / (max - _min);
             var to = height * (_value + range) / (max - _min);

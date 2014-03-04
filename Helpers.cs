@@ -38,5 +38,10 @@ namespace Editon
             }
             return found;
         }
+
+        public static Direction Opposite(this Direction dir)
+        {
+            return (Direction) (((int) dir + 2) % 4);
+        }
     }
 }
