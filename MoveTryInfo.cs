@@ -18,12 +18,4 @@ namespace Editon
         public MoveItem(Item item, Direction direction) : base(item) { Direction = direction; }
         public override void Make() { Item.Move(Direction); }
     }
-
-    sealed class AdjustEnd : Modification
-    {
-        public Direction End { get; private set; }
-        public Direction Direction { get; private set; }
-        public AdjustEnd(Item item, Direction end, Direction direction) : base(item) { End = end; Direction = direction; }
-        public override void Make() { Item.Adjust(End, Direction); }
-    }
 }

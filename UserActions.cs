@@ -20,23 +20,18 @@ namespace Editon
             moveCursor(
                 _cursorX,
                 _file.Items
-                    .Where(item => item.PosY1 < _cursorY && _cursorX >= item.PosX1 && _cursorX < item.PosX2)
-                    .MaxElementOrDefault(item => item.PosY1)
-                    .NullOr(item => item.PosY1)
-                    ?? 0);
+                    .Where(item => item.Y < _cursorY && item.StoppableAtX(_cursorX))
+                    .MaxOrDefault(item => item.Y, 0));
         }
         static void moveCursorRightFar()
         {
             moveCursor(
                 _file.Items
-                    .Where(item => item.PosX1 > _cursorX && _cursorY >= item.PosY1 && _cursorY < item.PosY2)
-                    .MinElementOrDefault(item => item.PosX1)
-                    .NullOr(item => item.PosX1)
+                    .Where(item => item.X > _cursorX && item.StoppableAtY(_cursorY))
+                    .MinOrDefault(item => item.X, (int?) null)
                     ?? _file.Items
-                        .Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2)
-                        .MaxElementOrDefault(item => item.PosX2)
-                        .NullOr(item => item.PosX2)
-                        ?? 0,
+                        .Where(item => item.ContainsY(_cursorY))
+                        .MaxOrDefault(item => item.X2, 0),
                 _cursorY);
         }
         static void moveCursorDownFar()
@@ -44,40 +39,31 @@ namespace Editon
             moveCursor(
                 _cursorX,
                 _file.Items
-                    .Where(item => item.PosY1 > _cursorY && _cursorX >= item.PosX1 && _cursorX < item.PosX2)
-                    .MinElementOrDefault(item => item.PosY1)
-                    .NullOr(item => item.PosY1)
+                    .Where(item => item.Y > _cursorY && item.StoppableAtX(_cursorX))
+                    .MinOrDefault(item => item.Y, (int?) null)
                     ?? _file.Items
-                        .Where(item => _cursorX >= item.PosX1 && _cursorX < item.PosX2)
-                        .MaxElementOrDefault(item => item.PosY2)
-                        .NullOr(item => item.PosY2)
-                        ?? 0);
+                        .Where(item => item.ContainsX(_cursorX))
+                        .MaxOrDefault(item => item.Y2, 0));
         }
         static void moveCursorLeftFar()
         {
             moveCursor(
                 _file.Items
-                    .Where(item => item.PosX1 < _cursorX && _cursorY >= item.PosY1 && _cursorY < item.PosY2)
-                    .MaxElementOrDefault(item => item.PosX1)
-                    .NullOr(item => item.PosX1)
-                    ?? 0,
+                    .Where(item => item.X < _cursorX && item.StoppableAtY(_cursorY))
+                    .MaxOrDefault(item => item.X, 0),
                 _cursorY);
         }
         static void moveCursorHome()
         {
             moveCursor(
-                _cursorX == 0 ? _file.Items.Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2).MinElementOrDefault(item => item.PosX1).NullOr(item => item.PosX1) ?? 0 : 0,
+                _cursorX == 0 ? _file.Items.Where(item => item.StoppableAtY(_cursorY)).MinOrDefault(item => item.X, 0) : 0,
                 _cursorY
             );
         }
         static void moveCursorEnd()
         {
             moveCursor(
-                _file.Items
-                    .Where(item => _cursorY >= item.PosY1 && _cursorY < item.PosY2)
-                    .MaxElementOrDefault(item => item.PosX2)
-                    .NullOr(item => item.PosX2)
-                    ?? 0,
+                _file.Items.Where(item => item.StoppableAtY(_cursorY)).MaxOrDefault(item => item.X2, 0),
                 _cursorY);
         }
         static void moveCursorHomeFar()
@@ -86,7 +72,7 @@ namespace Editon
         }
         static void moveCursorEndFar()
         {
-            moveCursor(0, _file.Items.MaxElementOrDefault(i => i.PosY2).NullOr(i => i.PosY2) ?? 0);
+            moveCursor(0, _file.Items.MaxOrDefault(i => i.Y2, 0));
         }
         static void moveCursorPageUp()
         {
@@ -116,7 +102,7 @@ namespace Editon
         {
             _mode = EditMode.Cursor;
             Invalidate(_selectedItem);
-            moveCursor(_selectedItem.PosX1, _selectedItem.PosY1);
+            moveCursor(_selectedItem.X, _selectedItem.Y);
         }
 
         static void moveUp() { move(Direction.Up); }

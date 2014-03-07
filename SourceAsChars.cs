@@ -39,6 +39,17 @@ namespace Editon
                 "│┌┐├┤┬╒╕╡╞╤╪┼".Contains(Chars[y][x]) ? LineType.Single :
                 "║╔╗╠╣╦╓╖╢╟╥╫╬".Contains(Chars[y][x]) ? LineType.Double : LineType.None;
         }
+        public LineType Line(int x, int y, Direction dir)
+        {
+            switch (dir)
+            {
+                case Direction.Up: return TopLine(x, y);
+                case Direction.Right: return RightLine(x, y);
+                case Direction.Down: return BottomLine(x, y);
+                case Direction.Left: return LeftLine(x, y);
+            }
+            throw new ArgumentException("Invalid direction.", "dir");
+        }
         public bool AnyLine(int x, int y)
         {
             return "─│┌┐└┘├┤┬┴┼═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬".Contains(Chars[y][x]);

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using RT.Util;
+using RT.Util.Collections;
 using RT.Util.Consoles;
 using RT.Util.ExtensionMethods;
 
@@ -27,57 +28,36 @@ namespace Editon
 
             var source = new SourceAsChars(lines.Select(l => l.PadRight(longestLine).ToCharArray()).ToArray());
             var visited = Ut.NewArray<bool>(source.Width, source.Height);
+            var edgeFromBox = Ut.NewArray<bool>(source.Width, source.Height);
 
-            Action<int, int, bool, LineType> processHLine = null;
-            Action<int, int, bool, LineType> processVLine = null;
-            processHLine = (int x, int y, bool toLeft, LineType lineType) =>
+            var __debug_output = Ut.Lambda(() =>
             {
-                var startX = x;
-                var vxs = new List<int>();
-                while (x > 0 && x < source.Width - 1 && (toLeft ? source.LeftLine(x, y) : source.RightLine(x, y)) == lineType && (toLeft ? source.RightLine(x - 1, y) : source.LeftLine(x + 1, y)) == lineType)
+                var strings = new AutoList<ConsoleColoredString>();
+                var putChar = Ut.Lambda((ConsoleColoredString input, int index, char ch) => input == null ? new string(' ', index) + ch : index >= input.Length ? input + new string(' ', index - input.Length) + ch.ToString() : input.Substring(0, index) + ch.ToString() + input.Substring(index + 1));
+                foreach (var box in result.Items.OfType<Box>())
                 {
-                    x += toLeft ? -1 : 1;
-                    if (!visited[x][y] && (source.TopLine(x, y) != LineType.None || source.BottomLine(x, y) != LineType.None))
-                        vxs.Add(x);
-                    visited[x][y] = true;
+                    for (int x = box.X; x <= box.X + box.Width; x++)
+                        for (int y = box.Y; y <= box.Y + box.Height; y++)
+                            strings[y] = putChar(strings[y], x, '·');
                 }
-                result.Items.Add(new HLine { LineType = lineType, X1 = toLeft ? x : startX, X2 = toLeft ? startX : x, Y = y });
-                foreach (var vx in vxs)
+                foreach (var n in result.Items.OfType<NonBoxItem>())
+                    strings[n.Y] = putChar(strings[n.Y], n.X, n is Node ? 'N' : 'E');
+                for (int y = 0; y < source.Height; y++)
                 {
-                    var top = source.TopLine(vx, y);
-                    if (top != LineType.None)
-                        processVLine(vx, y, true, top);
-                    var bottom = source.BottomLine(vx, y);
-                    if (bottom != LineType.None)
-                        processVLine(vx, y, false, bottom);
+                    for (int x = 0; x < source.Width; x++)
+                        if (visited[x][y])
+                        {
+                            if (strings[y] == null || strings[y].Length <= x)
+                                strings[y] = putChar(strings[y], x, ' ');
+                            strings[y] = strings[y].ColorSubstringBackground(x, 1, ConsoleColor.DarkRed);
+                        }
+                    ConsoleUtil.WriteLine(strings[y]);
                 }
-            };
-            processVLine = (int x, int y, bool up, LineType lineType) =>
-            {
-                var startY = y;
-                var hys = new List<int>();
-                while (y > 0 && y < source.Height - 1 && (up ? source.TopLine(x, y) : source.BottomLine(x, y)) == lineType && (up ? source.BottomLine(x, y - 1) : source.TopLine(x, y + 1)) == lineType)
-                {
-                    y += up ? -1 : 1;
-                    if (!visited[x][y] && (source.LeftLine(x, y) != LineType.None || source.RightLine(x, y) != LineType.None))
-                        hys.Add(y);
-                    visited[x][y] = true;
-                }
-                result.Items.Add(new VLine { LineType = lineType, X = x, Y1 = up ? y : startY, Y2 = up ? startY : y });
-                foreach (var hy in hys)
-                {
-                    var left = source.LeftLine(x, hy);
-                    if (left != LineType.None)
-                        processHLine(x, hy, true, left);
-                    var right = source.RightLine(x, hy);
-                    if (right != LineType.None)
-                        processHLine(x, hy, false, right);
-                }
-            };
+                System.Diagnostics.Debugger.Break();
+            });
 
             // Find boxes
-            var hLineStarts = new List<Tuple<int, int, bool, LineType>>();
-            var vLineStarts = new List<Tuple<int, int, bool, LineType>>();
+            var lineStarts = new List<Tuple<int, int, Direction, LineType>>();
             for (int y = 0; y < source.Height; y++)
             {
                 for (int x = 0; x < source.Width; x++)
@@ -88,7 +68,6 @@ namespace Editon
 
                     if (visited[x][y])
                         continue;
-                    visited[x][y] = true;
 
                     // Find width of box by walking along top edge
                     var top = source.RightLine(x, y);
@@ -138,7 +117,7 @@ namespace Editon
                         Y = y,
                         Width = width,
                         Height = height,
-                        LineTypes = new Dictionary<LineLocation, LineType>(4) { { LineLocation.Top, top }, { LineLocation.Right, right }, { LineLocation.Bottom, bottom }, { LineLocation.Left, left } }
+                        LineTypes = Helpers.MakeDictionary(top, right, bottom, left)
                     });
 
                     for (int xx = 0; xx <= width; xx++)
@@ -155,136 +134,175 @@ namespace Editon
                     // Search for lines starting along top and bottom
                     for (int i = x + 1; i < x + width; i++)
                     {
-                        var topOut = source.TopLine(i, y);
-                        if (topOut != LineType.None)
-                            vLineStarts.Add(Tuple.Create(i, y, true, topOut));
-                        var topIn = source.BottomLine(i, y);
-                        if (topIn != LineType.None)
-                            vLineStarts.Add(Tuple.Create(i, y, false, topIn));
+                        LineType topOut = source.TopLine(i, y), topIn = source.BottomLine(i, y);
+                        if (topOut != LineType.None || topIn != LineType.None)
+                        {
+                            result.Items.Add(new Node { X = i, Y = y, LineTypes = Helpers.MakeDictionary(topOut, LineType.None, topIn, LineType.None) });
+                            edgeFromBox[i][y] = true;
+                        }
 
-                        var bottomOut = source.BottomLine(i, y + height);
-                        if (bottomOut != LineType.None)
-                            vLineStarts.Add(Tuple.Create(i, y + height, false, bottomOut));
-                        var bottomIn = source.TopLine(i, y + height);
-                        if (bottomIn != LineType.None)
-                            vLineStarts.Add(Tuple.Create(i, y + height, true, bottomIn));
+                        LineType bottomOut = source.BottomLine(i, y + height), bottomIn = source.TopLine(i, y + height);
+                        if (bottomOut != LineType.None || bottomIn != LineType.None)
+                        {
+                            result.Items.Add(new Node { X = i, Y = y + height, LineTypes = Helpers.MakeDictionary(bottomIn, LineType.None, bottomOut, LineType.None) });
+                            edgeFromBox[i][y + height] = true;
+                        }
                     }
-                    // Search for outgoing edges along left and right
-                    for (int i = y + 1; i < y + height; i++)
-                    {
-                        var leftOut = source.LeftLine(x, i);
-                        if (leftOut != LineType.None)
-                            hLineStarts.Add(Tuple.Create(x, i, true, leftOut));
-                        var leftIn = source.RightLine(x, i);
-                        if (leftIn != LineType.None)
-                            hLineStarts.Add(Tuple.Create(x, i, false, leftIn));
 
-                        var rightOut = source.RightLine(x + width, i);
-                        if (rightOut != LineType.None)
-                            hLineStarts.Add(Tuple.Create(x + width, i, false, rightOut));
-                        var rightIn = source.LeftLine(x + width, i);
-                        if (rightIn != LineType.None)
-                            hLineStarts.Add(Tuple.Create(x + width, i, true, rightIn));
+                    // Search for outgoing edges along left and right
+                    for (int j = y + 1; j < y + height; j++)
+                    {
+                        LineType leftOut = source.LeftLine(x, j), leftIn = source.RightLine(x, j);
+                        if (leftOut != LineType.None || leftIn != LineType.None)
+                        {
+                            result.Items.Add(new Node { X = x, Y = j, LineTypes = Helpers.MakeDictionary(LineType.None, leftIn, LineType.None, leftOut) });
+                            edgeFromBox[x][j] = true;
+                        }
+
+                        LineType rightOut = source.RightLine(x + width, j), rightIn = source.LeftLine(x + width, j);
+                        if (rightOut != LineType.None || rightIn != LineType.None)
+                        {
+                            result.Items.Add(new Node { X = x + width, Y = j, LineTypes = Helpers.MakeDictionary(LineType.None, rightOut, LineType.None, rightIn) });
+                            edgeFromBox[x + width][j] = true;
+                        }
                     }
                 }
             }
 
-            // Process all the lines (starting from the outgoing edges of each box)
-            foreach (var hl in hLineStarts)
-                processHLine(hl.Item1, hl.Item2, hl.Item3, hl.Item4);
-            foreach (var vl in vLineStarts)
-                processVLine(vl.Item1, vl.Item2, vl.Item3, vl.Item4);
-
-            // Join up lines that are directly adjacent or overlapping
-            var toRemove = new List<Item>();
-            foreach (var pair in result.Items.OfType<HLine>().UniquePairs())
+            // Find all other nodes
+            for (int y = 0; y < source.Height; y++)
             {
-                if (pair.Item1.Y != pair.Item2.Y)
-                    continue;
-
-                if (pair.Item1.X2 == pair.Item2.X1)
-                    pair.Item1.X2 = pair.Item2.X2;
-                else if (pair.Item1.X1 == pair.Item2.X2)
-                    pair.Item1.X1 = pair.Item2.X1;
-                else if (pair.Item1.X1 == pair.Item2.X1)
-                    pair.Item1.X2 = Math.Max(pair.Item1.X2, pair.Item2.X2);
-                else if (pair.Item1.X2 == pair.Item2.X2)
-                    pair.Item1.X1 = Math.Min(pair.Item1.X1, pair.Item2.X1);
-                else
-                    continue;
-
-                toRemove.Add(pair.Item2);
+                for (int x = 0; x < source.Width; x++)
+                {
+                    if (!visited[x][y])
+                    {
+                        var lineTypes = Helpers.MakeDictionary(source.TopLine(x, y), source.RightLine(x, y), source.BottomLine(x, y), source.LeftLine(x, y));
+                        var isNode = false;
+                        foreach (var dir in Helpers.Directions)
+                            if (lineTypes[dir] != LineType.None && lineTypes[dir.Clockwise()] != LineType.None)
+                            {
+                                isNode = true;
+                                break;
+                            }
+                        if (isNode)
+                            result.Items.Add(new Node { X = x, Y = y, LineTypes = lineTypes });
+                    }
+                    if (!visited[x][y] || edgeFromBox[x][y])
+                    {
+                        foreach (var dir in Helpers.Directions)
+                        {
+                            var l = source.Line(x, y, dir);
+                            if (l != LineType.None && source.Line(x + dir.XOffset(), y + dir.YOffset(), dir.Opposite()) != l)
+                                result.Items.Add(new LineEnd { X = x, Y = y, Direction = dir.Opposite(), LineType = l });
+                        }
+                    }
+                }
             }
-            foreach (var pair in result.Items.OfType<VLine>().UniquePairs())
+
+            // Join up all the nodes
+            foreach (var item in result.Items.OfType<NonBoxItem>())
             {
-                if (pair.Item1.X != pair.Item2.X)
-                    continue;
-
-                if (pair.Item1.Y2 == pair.Item2.Y1)
-                    pair.Item1.Y2 = pair.Item2.Y2;
-                else if (pair.Item1.Y1 == pair.Item2.Y2)
-                    pair.Item1.Y1 = pair.Item2.Y1;
-                else if (pair.Item1.Y1 == pair.Item2.Y1)
-                    pair.Item1.Y2 = Math.Max(pair.Item1.Y2, pair.Item2.Y2);
-                else if (pair.Item1.Y2 == pair.Item2.Y2)
-                    pair.Item1.Y1 = Math.Min(pair.Item1.Y1, pair.Item2.Y1);
-                else
-                    continue;
-
-                toRemove.Add(pair.Item2);
+                if (item.IfType((Node n) => n.LineTypes[Direction.Right] != LineType.None, (LineEnd e) => e.Direction == Direction.Right, otherwise => false))
+                {
+                    var minX = item is Node ? item.X + 1 : item.X;
+                    var other = result.Items.OfType<Node>().Where(n => n.X >= minX && n.Y == item.Y).MinElementOrDefault(n => n.X);
+                    var otherEnd = result.Items.OfType<LineEnd>().Where(e => e.Direction == Direction.Left && e.X >= item.X && e.Y == item.Y).MinElementOrDefault(e => e.X);
+                    if (other != null && (otherEnd == null || otherEnd.X >= other.X))
+                    {
+                        item.IfType(
+                            (Node n) => { n.JoinUpWith[Direction.Right] = other; },
+                            (LineEnd e) => { e.JoinUpWith = other; });
+                        other.JoinUpWith[Direction.Left] = item;
+                    }
+                    else if (otherEnd != null && (other == null || other.X > otherEnd.X))
+                    {
+                        item.IfType(
+                            (Node n) => { n.JoinUpWith[Direction.Right] = otherEnd; },
+                            (LineEnd e) => { e.JoinUpWith = otherEnd; });
+                        otherEnd.JoinUpWith = item;
+                    }
+                    else
+                        throw new InvalidOperationException("Things don’t join up.");
+                }
+                if (item.IfType((Node n) => n.LineTypes[Direction.Down] != LineType.None, (LineEnd e) => e.Direction == Direction.Down, otherwise => false))
+                {
+                    var minY = item is Node ? item.Y + 1 : item.Y;
+                    var other = result.Items.OfType<Node>().Where(n => n.Y >= minY && n.X == item.X).MinElementOrDefault(n => n.Y);
+                    var otherEnd = result.Items.OfType<LineEnd>().Where(e => e.Direction == Direction.Up && e.Y >= item.Y && e.X == item.X).MinElementOrDefault(e => e.Y);
+                    if (other != null && (otherEnd == null || otherEnd.Y >= other.Y))
+                    {
+                        item.IfType(
+                            (Node n) => { n.JoinUpWith[Direction.Down] = other; },
+                            (LineEnd e) => { e.JoinUpWith = other; });
+                        other.JoinUpWith[Direction.Up] = item;
+                    }
+                    else if (otherEnd != null && (other == null || other.Y > otherEnd.Y))
+                    {
+                        item.IfType(
+                            (Node n) => { n.JoinUpWith[Direction.Down] = otherEnd; },
+                            (LineEnd e) => { e.JoinUpWith = otherEnd; });
+                        otherEnd.JoinUpWith = item;
+                    }
+                    else
+                        throw new InvalidOperationException("Things don’t join up.");
+                }
             }
-            result.Items.RemoveRange(toRemove);
+
+            // We need _hasLineCache for the following
+            bool[][] hasLine;
+            getFileChars(result.Items, out hasLine, ignoreTextAreas: true);
 
             // Determine the location of text lines within every box
             foreach (var box in result.Items.OfType<Box>())
             {
-                var curLines = new HashSet<TextLine>();
+                var curTextLines = new HashSet<TextLine>();
                 for (int by = 1; by < box.Height; by++)
                 {
                     var y = box.Y + by;
-                    TextLine curLine = null;
+                    TextLine curTextLine = null;
                     var curLineText = new StringBuilder();
                     for (int bx = 1; bx < box.Width; bx++)
                     {
                         var x = box.X + bx;
-                        if (result.Items.OfType<Line>().Any(l => l.Contains(x, y)))
+
+                        if (hasLine[x][y])
                         {
-                            if (curLine != null)
+                            if (curTextLine != null)
                             {
-                                curLine.Content = curLineText.ToString();
-                                curLines.Add(curLine);
-                                curLine = null;
+                                curTextLine.Content = curLineText.ToString();
+                                curTextLines.Add(curTextLine);
+                                curTextLine = null;
                                 curLineText.Clear();
                             }
                         }
                         else
                         {
-                            if (curLine == null)
-                                curLine = new TextLine { X = x, Y = y };
+                            if (curTextLine == null)
+                                curTextLine = new TextLine { X = x, Y = y };
                             curLineText.Append(source.Chars[y][x]);
                         }
                     }
-                    if (curLine != null)
+                    if (curTextLine != null)
                     {
-                        curLine.Content = curLineText.ToString();
-                        curLines.Add(curLine);
+                        curTextLine.Content = curLineText.ToString();
+                        curTextLines.Add(curTextLine);
                     }
                 }
 
                 // Group text lines by vertical adjacency
                 var textAreas = new List<TextLine[]>();
-                while (curLines.Count > 0)
+                while (curTextLines.Count > 0)
                 {
-                    var first = curLines.First();
-                    curLines.Remove(first);
+                    var first = curTextLines.First();
+                    curTextLines.Remove(first);
                     var curGroup = new List<TextLine> { first };
                     while (true)
                     {
-                        var next = curLines.FirstOrDefault(one => curGroup.Any(two => (one.Y == two.Y + 1 || one.Y == two.Y - 1) && one.X + one.Content.Length > two.X && one.X < two.X + two.Content.Length));
+                        var next = curTextLines.FirstOrDefault(one => curGroup.Any(two => (one.Y == two.Y + 1 || one.Y == two.Y - 1) && one.X + one.Content.Length > two.X && one.X < two.X + two.Content.Length));
                         if (next == null)
                             break;
                         curGroup.Add(next);
-                        curLines.Remove(next);
+                        curTextLines.Remove(next);
                     }
                     curGroup.Sort(CustomComparer<TextLine>.By(l => l.Y).ThenBy(l => l.X));
                     textAreas.Add(curGroup.ToArray());

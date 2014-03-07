@@ -32,6 +32,7 @@ namespace Editon
         static string _filePath;
         static bool _fileChanged;
         static string[] _fileCharsCache;
+        static bool[][] _hasLineCache;
 
         static EditMode _mode;
         static int _cursorX, _cursorY;
@@ -109,8 +110,7 @@ namespace Editon
 
         static void drawStatusBar(string status)
         {
-            Console.CursorLeft = 1;
-            Console.CursorTop = Console.BufferHeight - 1;
+            Console.SetCursorPosition(1, Console.BufferHeight - 1);
             ConsoleUtil.Write(status.SubstringSafe(0, Console.BufferWidth - 2).PadRight(Console.BufferWidth - 2).Color(ConsoleColor.White, ConsoleColor.DarkBlue));
         }
 
@@ -156,16 +156,12 @@ namespace Editon
             _cursorY = y;
 
             _selectedItem =
-                _file.Items.FirstPreferNonBox(item =>
-                    prevX >= item.PosX1 && prevX < item.PosX2 && prevY >= item.PosY1 && prevY < item.PosY2 &&
-                    _cursorX >= item.PosX1 && _cursorX < item.PosX2 && _cursorY >= item.PosY1 && _cursorY < item.PosY2) ??
-                _file.Items.FirstPreferNonBox(item =>
-                    _cursorX >= item.PosX1 && _cursorX < item.PosX2 && _cursorY >= item.PosY1 && _cursorY < item.PosY2);
+                (Item) _file.Items.OfType<NonBoxItem>().FirstOrDefault(item => item.X == _cursorX && item.Y == _cursorY) ??
+                (Item) _file.Items.OfType<Box>().FirstOrDefault(box => box.Contains(_cursorX, _cursorY));
 
-            if (_selectedItem is Box)
-                _selectedBoxTextAreaIndex = ((Box) _selectedItem).TextAreas.IndexOf(area => area.Any(line => _cursorY == line.Y && _cursorX >= line.X && _cursorX < line.X + line.Content.Length));
-            else
-                _selectedBoxTextAreaIndex = -1;
+            _selectedBoxTextAreaIndex = _selectedItem.IfType(
+                (Box box) => box.TextAreas.IndexOf(area => area.Any(line => _cursorY == line.Y && _cursorX >= line.X && _cursorX < line.X + line.Content.Length)),
+                otherwise => -1);
 
             while (_cursorX >= _horizScroll.Value + EditorWidth)
             {
@@ -230,10 +226,10 @@ namespace Editon
                 if (y < _fileCharsCache.Length)
                 {
                     var str = _fileCharsCache[y].SubstringSafe(s, l).PadRight(l).Color(ConsoleColor.Gray);
-                    if (_selectedItem != null && y >= _selectedItem.PosY1 && y < _selectedItem.PosY2 && s + l > _selectedItem.PosX1 && s < _selectedItem.PosX2)
+                    if (_selectedItem != null && y >= _selectedItem.Y && y < _selectedItem.Y2 && s + l > _selectedItem.X && s < _selectedItem.X2)
                     {
-                        var st = Math.Max(0, _selectedItem.PosX1 - s);
-                        str = str.ColorSubstring(st, Math.Min(_selectedItem.PosX2 - _selectedItem.PosX1, l - st), ConsoleColor.White, _mode == EditMode.Moving ? ConsoleColor.DarkRed : ConsoleColor.DarkBlue);
+                        var st = Math.Max(0, _selectedItem.X - s);
+                        str = str.ColorSubstring(st, Math.Min(_selectedItem.X2 - _selectedItem.X, l - st), ConsoleColor.White, _mode == EditMode.Moving ? ConsoleColor.DarkRed : ConsoleColor.DarkBlue);
                     }
                     if (_mode == EditMode.Cursor)
                     {
@@ -267,73 +263,128 @@ namespace Editon
         {
             if (_fileCharsCache != null)
                 return;
+            _fileCharsCache = getFileChars(_file.Items, out _hasLineCache);
+        }
+
+        static string[] getFileChars(List<Item> items, out bool[][] hasLine, bool ignoreTextAreas = false)
+        {
             var dic = new Dictionary<int, Dictionary<int, LineChars>>();
-            foreach (var item in _file.Items)
+            var hasLineRet = Ut.NewArray<bool>(items.MaxOrDefault(i => i.X2, 0), items.MaxOrDefault(i => i.Y2, 0));
+            var set = Ut.Lambda((int x, int y, LineChars lc) =>
+            {
+                dic.BitwiseOrSafe(x, y, lc);
+                hasLineRet[x][y] = true;
+            });
+            foreach (var item in items)
+            {
                 item.IfType(
                     (Box box) =>
                     {
                         for (int x = 0; x < box.Width; x++)
                         {
-                            dic.BitwiseOrSafe(box.X + x, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Right));
-                            dic.BitwiseOrSafe(box.X + x + 1, box.Y, box.LineTypes[LineLocation.Top].At(LineLocation.Left));
-                            dic.BitwiseOrSafe(box.X + x, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Right));
-                            dic.BitwiseOrSafe(box.X + x + 1, box.Y + box.Height, box.LineTypes[LineLocation.Bottom].At(LineLocation.Left));
+                            set(box.X + x, box.Y, box.LineTypes[Direction.Up].At(Direction.Right));
+                            set(box.X + x + 1, box.Y, box.LineTypes[Direction.Up].At(Direction.Left));
+                            set(box.X + x, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Right));
+                            set(box.X + x + 1, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Left));
                         }
                         for (int y = 0; y < box.Height; y++)
                         {
-                            dic.BitwiseOrSafe(box.X, box.Y + y, box.LineTypes[LineLocation.Left].At(LineLocation.Bottom));
-                            dic.BitwiseOrSafe(box.X, box.Y + y + 1, box.LineTypes[LineLocation.Left].At(LineLocation.Top));
-                            dic.BitwiseOrSafe(box.X + box.Width, box.Y + y, box.LineTypes[LineLocation.Right].At(LineLocation.Bottom));
-                            dic.BitwiseOrSafe(box.X + box.Width, box.Y + y + 1, box.LineTypes[LineLocation.Right].At(LineLocation.Top));
+                            set(box.X, box.Y + y, box.LineTypes[Direction.Left].At(Direction.Down));
+                            set(box.X, box.Y + y + 1, box.LineTypes[Direction.Left].At(Direction.Up));
+                            set(box.X + box.Width, box.Y + y, box.LineTypes[Direction.Right].At(Direction.Down));
+                            set(box.X + box.Width, box.Y + y + 1, box.LineTypes[Direction.Right].At(Direction.Up));
                         }
                     },
-                    (HLine hl) =>
+                    (Node n) =>
                     {
-                        for (int x = hl.X1; x < hl.X2; x++)
+                        var lineType = n.LineTypes[Direction.Right];
+                        if (lineType != LineType.None)
                         {
-                            dic.BitwiseOrSafe(x, hl.Y, hl.LineType.At(LineLocation.Right));
-                            dic.BitwiseOrSafe(x + 1, hl.Y, hl.LineType.At(LineLocation.Left));
+                            var x2 = n.JoinUpWith[Direction.Right].X;
+                            for (int x = n.X; x < x2; x++)
+                            {
+                                set(x, n.Y, lineType.At(Direction.Right));
+                                set(x + 1, n.Y, lineType.At(Direction.Left));
+                            }
+                            if (n.JoinUpWith[Direction.Right] is LineEnd)
+                                set(x2, n.Y, lineType.At(Direction.Right));
+                        }
+                        lineType = n.LineTypes[Direction.Down];
+                        if (lineType != LineType.None)
+                        {
+                            var y2 = n.JoinUpWith[Direction.Down].Y;
+                            for (int y = n.Y; y < y2; y++)
+                            {
+                                set(n.X, y, lineType.At(Direction.Down));
+                                set(n.X, y + 1, lineType.At(Direction.Up));
+                            }
+                            if (n.JoinUpWith[Direction.Down] is LineEnd)
+                                set(n.X, y2, lineType.At(Direction.Down));
                         }
                     },
-                    (VLine vl) =>
+                    (LineEnd e) =>
                     {
-                        for (int y = vl.Y1; y < vl.Y2; y++)
+                        if (e.Direction == Direction.Right)
                         {
-                            dic.BitwiseOrSafe(vl.X, y, vl.LineType.At(LineLocation.Bottom));
-                            dic.BitwiseOrSafe(vl.X, y + 1, vl.LineType.At(LineLocation.Top));
+                            set(e.X, e.Y, e.LineType.At(Direction.Left));
+                            var x2 = e.JoinUpWith.X;
+                            for (int x = e.X; x < x2; x++)
+                            {
+                                set(x, e.Y, e.LineType.At(Direction.Right));
+                                set(x + 1, e.Y, e.LineType.At(Direction.Left));
+                            }
+                            if (e.JoinUpWith is LineEnd)
+                                set(x2, e.Y, e.LineType.At(Direction.Right));
+                        }
+                        else if (e.Direction == Direction.Down)
+                        {
+                            set(e.X, e.Y, e.LineType.At(Direction.Up));
+                            var y2 = e.JoinUpWith.Y;
+                            for (int y = e.Y; y < y2; y++)
+                            {
+                                set(e.X, y, e.LineType.At(Direction.Down));
+                                set(e.X, y + 1, e.LineType.At(Direction.Up));
+                            }
+                            if (e.JoinUpWith is LineEnd)
+                                set(e.X, y2, e.LineType.At(Direction.Down));
                         }
                     });
+            }
 
             var sb = new StringBuilder();
             var width = dic.Keys.Max();
             var height = dic.Values.SelectMany(val => val.Keys).Max();
-            _fileCharsCache = new string[height + 1];
+            var result = new string[height + 1];
             for (int y = 0; y <= height; y++)
             {
                 for (int x = 0; x <= width; x++)
                 {
                     var val = dic.Get(x, y, (LineChars) 0);
-                    sb.Append(" │║─└╙═╘╚││║┌├╟╒╞╠║║║╓╟╟╔╠╠─┘╜─┴╨═╧╩┐┤╢┬┼╫╤╪╬╖╢╢╥╫╫╦╬╬═╛╝═╧╩═╧╩╕╡╣╤╪╬╤╪╬╗╣╣╦╬╬╦╬╬?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????"[
-                        ((int) (val & LineChars.TopMask) >> (2 * (int) LineLocation.Top)) +
-                        ((int) (val & LineChars.RightMask) >> (2 * (int) LineLocation.Right)) * 3 +
-                        ((int) (val & LineChars.BottomMask) >> (2 * (int) LineLocation.Bottom)) * 3 * 3 +
-                        ((int) (val & LineChars.LeftMask) >> (2 * (int) LineLocation.Left)) * 3 * 3 * 3
+                    sb.Append(" │║─└╙═╘╚││║┌├╟╒╞╠║║║╓╟╟╔╠╠─┘╜─┴╨═╧╩┐┤╢┬┼╫╤╪╬╖╢╢╥╫╫╦╬╬═╛╝═╧╩═╧╩╕╡╣╤╪╬╤╪╬╗╣╣╦╬╬╦╬╬"[
+                        ((int) (val & LineChars.TopMask) >> (2 * (int) (int) Direction.Up)) +
+                        ((int) (val & LineChars.RightMask) >> (2 * (int) (int) Direction.Right)) * 3 +
+                        ((int) (val & LineChars.BottomMask) >> (2 * (int) (int) Direction.Down)) * 3 * 3 +
+                        ((int) (val & LineChars.LeftMask) >> (2 * (int) (int) Direction.Left)) * 3 * 3 * 3
                     ]);
                 }
-                _fileCharsCache[y] = sb.ToString();
+                result[y] = sb.ToString();
                 sb.Clear();
             }
 
-            foreach (var box in _file.Items.OfType<Box>())
-                foreach (var area in box.TextAreas)
-                    foreach (var line in area)
-                        _fileCharsCache[line.Y] = _fileCharsCache[line.Y].Substring(0, line.X) + line.Content + _fileCharsCache[line.Y].Substring(line.X + line.Content.Length);
+            if (!ignoreTextAreas)
+                foreach (var box in items.OfType<Box>())
+                    foreach (var area in box.TextAreas)
+                        foreach (var line in area)
+                            result[line.Y] = result[line.Y].Substring(0, line.X) + line.Content + result[line.Y].Substring(line.X + line.Content.Length);
+
+            hasLine = hasLineRet;
+            return result;
         }
 
         public static void Invalidate(Item item)
         {
             if (item != null)
-                invalidate(item.PosX1, item.PosY1, item.PosX2, item.PosY2);
+                invalidate(item.X, item.Y, item.X2, item.Y2);
         }
         static void invalidateAll() { invalidate(_horizScroll.Value, _vertScroll.Value, _horizScroll.Value + Console.BufferWidth, _vertScroll.Value + Console.BufferHeight); }
 
@@ -359,8 +410,8 @@ namespace Editon
 
         static void updateAfterEdit()
         {
-            _horizScroll.Max = _file.Items.Max(i => i.PosX2) + 1;
-            _vertScroll.Max = _file.Items.Max(i => i.PosY2) + 1;
+            _horizScroll.Max = _file.Items.Max(i => i.X2) + 1;
+            _vertScroll.Max = _file.Items.Max(i => i.Y2) + 1;
         }
 
         static bool canDestroy()
@@ -373,272 +424,7 @@ namespace Editon
             if (_selectedItem == null)
                 return;
 
-            if ((dir == Direction.Up || dir == Direction.Down) && (_selectedItem is VLine))
-                return;
-            if ((dir == Direction.Right || dir == Direction.Left) && (_selectedItem is HLine))
-                return;
-
-            var modifications = new List<Modification>();
-            if (tryMove(_selectedItem, dir, modifications))
-                foreach (var modification in modifications)
-                    modification.Make();
-        }
-
-        static bool tryMove(Item item, Direction dir, List<Modification> mods)
-        {
-            var already = mods.OfType<MoveItem>().FirstOrDefault(m => m.Item == item);
-            if (already != null)
-                return already.Direction == dir;
-
-            mods.Add(new MoveItem(item, dir));
-
-            var box = item as Box;
-            var vline = item as VLine;
-            var hline = item as HLine;
-
-            var xOff = dir == Direction.Left ? -1 : dir == Direction.Right ? 1 : 0;
-            var yOff = dir == Direction.Up ? -1 : dir == Direction.Down ? 1 : 0;
-
-            foreach (var other in _file.Items)
-            {
-                if (other == item)
-                    continue;
-
-                // See what’s in the way
-                switch (dir)
-                {
-                    case Direction.Up:
-                        if (!(other is VLine))
-                            if (other.PosY2 > item.PosY1 && other.PosY2 <= item.PosY1 + 1 && other.PosX2 > item.PosX1 && other.PosX1 < item.PosX2)
-                                if (!tryMove(other, Direction.Up, mods))
-                                    return false;
-                        break;
-
-                    case Direction.Down:
-                        if (!(other is VLine))
-                            if (other.PosY1 < item.PosY2 && other.PosY1 >= item.PosY2 - 1 && other.PosX2 > item.PosX1 && other.PosX1 < item.PosX2)
-                                if (!tryMove(other, Direction.Down, mods))
-                                    return false;
-                        break;
-
-                    case Direction.Left:
-                        if (!(other is HLine))
-                            if (other.PosX2 > item.PosX1 - _fileOptions.HSpacing && other.PosX2 <= item.PosX1 + 1 && other.PosY2 > item.PosY1 && other.PosY1 < item.PosY2)
-                                if (!tryMove(other, Direction.Left, mods))
-                                    return false;
-                        break;
-
-                    case Direction.Right:
-                        if (!(other is HLine))
-                            if (other.PosX1 < item.PosX2 + _fileOptions.HSpacing && other.PosX1 >= item.PosX2 - 1 && other.PosY2 > item.PosY1 && other.PosY1 < item.PosY2)
-                                if (!tryMove(other, Direction.Right, mods))
-                                    return false;
-                        break;
-                }
-
-                if (box != null)
-                {
-                    // Move all the lines inside of the box
-                    if (other.PosX1 < box.PosX2 - xOff - 1 && other.PosX2 > box.PosX1 - xOff + 1 && other.PosY1 < box.PosY2 - yOff - 1 && other.PosY2 > box.PosY1 - yOff + 1)
-                        mods.Add(new MoveItem(other, dir));
-
-                    // Lines attached to the right
-                    else if (other.PosY1 >= box.PosY1 - yOff && other.PosY2 <= box.PosY2 - yOff && other.PosX1 == box.PosX2 - xOff - 1)
-                    {
-                        if (!tryAdjust(other, Direction.Left, dir, mods))
-                            return false;
-                    }
-
-                    // Lines attached to the left
-                    else if (other.PosY1 >= box.PosY1 - yOff && other.PosY2 <= box.PosY2 - yOff && other.PosX2 == box.PosX1 - xOff + 1)
-                    {
-                        if (!tryAdjust(other, Direction.Right, dir, mods))
-                            return false;
-                    }
-
-                    // Lines attached above
-                    else if (other.PosX1 >= box.PosX1 - xOff && other.PosX2 <= box.PosX2 - xOff && other.PosY2 == box.PosY1 - yOff + 1)
-                    {
-                        if (!tryAdjust(other, Direction.Down, dir, mods))
-                            return false;
-                    }
-
-                    // Lines attached below
-                    else if (other.PosX1 >= box.PosX1 - xOff && other.PosX2 <= box.PosX2 - xOff && other.PosY1 == box.PosY2 - yOff - 1)
-                    {
-                        if (!tryAdjust(other, Direction.Up, dir, mods))
-                            return false;
-                    }
-                }
-                else if (vline != null)
-                {
-                    // Lines attached to the right
-                    if (other.PosY1 >= vline.PosY1 && other.PosY2 <= vline.PosY2 && other.PosX1 == vline.PosX1)
-                    {
-                        if (!tryAdjust(other, Direction.Left, dir, mods))
-                            return false;
-                    }
-
-                   // Lines attached to the left
-                    else if (other.PosY1 >= vline.PosY1 && other.PosY2 <= vline.PosY2 && other.PosX2 == vline.PosX2)
-                    {
-                        if (!tryAdjust(other, Direction.Right, dir, mods))
-                            return false;
-                    }
-                }
-                else if (hline != null)
-                {
-                    // Lines attached above
-                    if (other.PosX1 >= hline.PosX1 && other.PosX2 <= hline.PosX2 && other.PosY2 == hline.PosY2)
-                    {
-                        if (!tryAdjust(other, Direction.Down, dir, mods))
-                            return false;
-                    }
-
-                    // Lines attached below
-                    else if (other.PosX1 >= hline.PosX1 && other.PosX2 <= hline.PosX2 && other.PosY1 == hline.PosY1)
-                    {
-                        if (!tryAdjust(other, Direction.Up, dir, mods))
-                            return false;
-                    }
-                }
-            }
-            return true;
-        }
-
-        private static bool tryAdjust(Item item, Direction end, Direction dir, List<Modification> mods)
-        {
-            Ut.Assert(!(item is Box));
-
-            var already = mods.OfType<AdjustEnd>().FirstOrDefault(m => m.Item == item && m.End == end);
-            if (already != null)
-                return already.Direction == dir;
-
-            // We are making the line longer.
-            if (end == dir)
-            {
-                mods.Add(new AdjustEnd(item, end, dir));
-                return true;
-            }
-
-            return item.IfType(
-                (VLine vline) =>
-                {
-                    if (end == Direction.Left || end == Direction.Right)
-                        throw new InvalidOperationException("Unexpected vline edge.");
-
-                    if (dir == Direction.Up || dir == Direction.Down)
-                    {
-                        Ut.Assert(end == dir.Opposite());
-                        mods.Add(new AdjustEnd(item, end, dir));
-                        if (item.PosY1 == item.PosY2 - 2)
-                        {
-                            if (!tryAdjust(item, end.Opposite(), dir, mods))
-                                return false;
-                        }
-                        else
-                        {
-                            foreach (var other in _file.Items)
-                            {
-                                if (other is HLine && (dir == Direction.Up ? other.PosY2 == item.PosY2 - 1 : other.PosY1 == item.PosY1 + 1))
-                                {
-                                    if (other.PosX1 == item.PosX1)
-                                    {
-                                        if (!tryAdjust(other, Direction.Left, dir, mods))
-                                            return false;
-                                    }
-                                    else if (other.PosX2 == item.PosX2)
-                                    {
-                                        if (!tryAdjust(other, Direction.Right, dir, mods))
-                                            return false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    else    // dir == Left || Right
-                    {
-                        // We are trying to move the end of the line sideways.
-
-                        // If there is something in the way of moving the end (i.e. no space to add a kink), we have to move that.
-                        var push = Ut.Lambda((Item other) =>
-                        {
-                            if (other is VLine && (other.PosY1 == (end == Direction.Up ? item.PosY1 : item.PosY2 - 2) || other.PosY1 == (end == Direction.Up ? item.PosY1 + 1 : item.PosY2 - 1)))
-                            {
-                                if (!tryAdjust(other, Direction.Up, dir, mods))
-                                    return false;
-                            }
-                            else if (other is VLine && (other.PosY2 == (end == Direction.Up ? item.PosY1 + 1 : item.PosY2 - 1) || other.PosY1 == (end == Direction.Up ? item.PosY1 + 2 : item.PosY2)))
-                            {
-                                if (!tryAdjust(other, Direction.Down, dir, mods))
-                                    return false;
-                            }
-                            else if (other is HLine)
-                            {
-                                if (!tryAdjust(other, dir.Opposite(), dir, mods))
-                                    return false;
-                            }
-                            else
-                            {
-                                if (!tryMove(other, dir, mods))
-                                    return false;
-                            }
-                        });
-
-                        var inTheWayAtEnd = _file.Items.Where(other =>
-                            (dir == Direction.Left ? (other.PosX2 <= item.PosX1 && other.PosX2 >= item.PosX1 - _fileOptions.HSpacing) : (other.PosX1 >= item.PosX2 && other.PosX1 <= item.PosX2 + _fileOptions.HSpacing)) &&
-                            (end == Direction.Up ? (other.PosY1 <= item.PosY1 + 1 && other.PosY2 > item.PosY1) : (other.PosY1 < item.PosY2 && other.PosY2 >= item.PosY2 - 1))
-                        ).ToArray();
-                        foreach (var other in inTheWayAtEnd)
-                            if (!push(other))
-                                return false;
-
-                        // What else is in the way?
-                        var inTheWay = _file.Items.Where(other =>
-                            (dir == Direction.Left ? (other.PosX2 <= item.PosX1 && other.PosX2 >= item.PosX1 - _fileOptions.HSpacing) : (other.PosX1 >= item.PosX2 && other.PosX1 <= item.PosX2 + _fileOptions.HSpacing)) &&
-                            other.PosY2 > item.PosY1 && other.PosY1 < item.PosY2 &&
-                            !inTheWayAtEnd.Contains(other)
-                        ).ToArray();
-
-                        // Find all the perpendicular lines
-                        var perpendicular = _file.Items.OfType<HLine>().Where(h => h.Y >= vline.Y1 && h.Y < vline.Y2 && (h.X1 == vline.X || h.X2 == vline.X)).ToArray();
-
-                        // Find the first place where we could add a kink
-                        var gap = Enumerable.Range(1, vline.Y2 - vline.Y1 - 1)
-                            .Select(yoff => end == Direction.Up ? vline.Y1 + yoff : vline.Y2 - yoff)
-                            .Where(y => !perpendicular.Any(p => p.Y == y) && !inTheWay.Any(itw => y >= itw.PosY1 && y < itw.PosY2))
-                            .FirstOrNull();
-
-                        if (inTheWay.Length == 0 || gap == null)
-                        {
-                            // If nothing is in the way, OR there is no gap, move the whole line
-                            mods.Add(new MoveItem(item, dir));
-                            foreach (var other in inTheWay)
-                                if (!push(other))
-                                    return false;
-                            foreach (var other in perpendicular)
-                                if (!tryAdjust(other, other.X1 == vline.X ? Direction.Left : Direction.Right, dir, mods))
-                                    return false;
-                            return true;
-                        }
-                        else
-                        {
-                            // Add a kink
-                            throw new NotImplementedException();
-                        }
-                    }
-                    return false;
-                },
-                (HLine hline) =>
-                {
-                    if (end == Direction.Up || end == Direction.Down)
-                        throw new InvalidOperationException("Unexpected hline edge.");
-                    throw new NotImplementedException();
-                },
-                @else =>
-                {
-                    throw new InvalidOperationException("Unexpected type of item.");
-                });
+            throw new NotImplementedException();
         }
     }
 }

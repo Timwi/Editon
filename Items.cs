@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using RT.Util.Collections;
 using RT.Util.ExtensionMethods;
 using RT.Util.Serialization;
 
@@ -7,41 +8,46 @@ namespace Editon
 {
     abstract class Item
     {
-        public abstract int CenterX { get; }
-        public abstract int CenterY { get; }
+        public int X, Y;
 
-        public abstract int PosX1 { get; }  // inclusive
-        public abstract int PosY1 { get; }  // inclusive
-        public abstract int PosX2 { get; }  // exclusive
-        public abstract int PosY2 { get; }  // exclusive
-
-        public bool Contains(int x, int y)
+        public virtual void Move(Direction direction)
         {
-            return x >= PosX1 && x < PosX2 && y >= PosY1 && y < PosY2;
+            switch (direction)
+            {
+                case Direction.Up: Y--; break;
+                case Direction.Right: X++; break;
+                case Direction.Down: Y++; break;
+                case Direction.Left: X--; break;
+            }
         }
 
-        public abstract void Move(Direction direction);
-        public abstract void Adjust(Direction end, Direction intoDirection);
+        public abstract bool ContainsX(int x);
+        public abstract bool ContainsY(int y);
+        public abstract bool StoppableAtX(int x);
+        public abstract bool StoppableAtY(int y);
+        public virtual int X2 { get { return X + 1; } }
+        public virtual int Y2 { get { return Y + 1; } }
     }
 
-    [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
     sealed class Box : Item
     {
-        public int X, Y;
         public int Width, Height;
         public TextLine[][] TextAreas;
 
         [ClassifyNotNull]
-        public Dictionary<LineLocation, LineType> LineTypes = new Dictionary<LineLocation, LineType>(4);
+        public AutoDictionary<Direction, LineType> LineTypes = Helpers.MakeDictionary(LineType.Single, LineType.Single, LineType.Single, LineType.Single);
 
-        public LineType this[LineLocation loc] { get { return LineTypes.Get(loc, LineType.None); } }
+        public LineType this[Direction loc] { get { return LineTypes[loc]; } }
 
-        public override int CenterX { get { return X + (Width + 1) / 2; } }
-        public override int CenterY { get { return Y + (Height + 1) / 2; } }
-        public override int PosX1 { get { return X; } }
-        public override int PosX2 { get { return X + Width + 1; } }
-        public override int PosY1 { get { return Y; } }
-        public override int PosY2 { get { return Y + Height + 1; } }
+        public bool Contains(int x, int y)
+        {
+            return x >= X && x <= X + Width && y >= Y && y <= Y + Height;
+        }
+
+        public override bool ContainsX(int x) { return x >= X && x <= X + Width; }
+        public override bool ContainsY(int y) { return y >= Y && y <= Y + Height; }
+        public override bool StoppableAtX(int x) { return x >= X && x <= X + Width; }
+        public override bool StoppableAtY(int y) { return y >= Y && y <= Y + Height; }
 
         public override void Move(Direction direction)
         {
@@ -89,145 +95,54 @@ namespace Editon
             };
         }
 
-        public override void Adjust(Direction end, Direction intoDirection)
+        public override int X2 { get { return X + Width + 1; } }
+        public override int Y2 { get { return Y + Height + 1; } }
+    }
+
+    abstract class NonBoxItem : Item { }
+
+    sealed class Node : NonBoxItem
+    {
+        public AutoDictionary<Direction, LineType> LineTypes = new AutoDictionary<Direction, LineType>();
+        public AutoDictionary<Direction, Item> JoinUpWith = new AutoDictionary<Direction, Item>();
+        public override bool ContainsX(int x) { return x == X; }
+        public override bool ContainsY(int y) { return y == Y; }
+        public override bool StoppableAtX(int x)
         {
-            throw new InvalidOperationException("Adjust invalid on boxes.");
+            return
+                x == X ||
+                (LineTypes[Direction.Right] != LineType.None && x >= X && x <= JoinUpWith[Direction.Right].X) ||
+                (LineTypes[Direction.Left] != LineType.None && x <= X && x >= JoinUpWith[Direction.Left].X);
+        }
+        public override bool StoppableAtY(int y)
+        {
+            return
+                y == Y ||
+                (LineTypes[Direction.Down] != LineType.None && y >= Y && y <= JoinUpWith[Direction.Down].Y) ||
+                (LineTypes[Direction.Up] != LineType.None && y <= Y && y >= JoinUpWith[Direction.Up].Y);
         }
     }
 
-    abstract class Line : Item { }
-
-    [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
-    sealed class HLine : Line
+    sealed class LineEnd : NonBoxItem
     {
-        public int X1, X2, Y;
+        public Direction Direction;
         public LineType LineType;
-        public override int CenterX { get { return (X1 + X2) / 2; } }
-        public override int CenterY { get { return Y; } }
-        public override int PosX1 { get { return X1; } }
-        public override int PosX2 { get { return X2 + 1; } }
-        public override int PosY1 { get { return Y; } }
-        public override int PosY2 { get { return Y + 1; } }
-
-        public override void Move(Direction direction)
+        public Item JoinUpWith;
+        public override bool ContainsX(int x) { return x == X; }
+        public override bool ContainsY(int y) { return y == Y; }
+        public override bool StoppableAtX(int x)
         {
-            EditonProgram.Invalidate(this);
-            switch (direction)
-            {
-                case Direction.Up: Y--; break;
-                case Direction.Right: X1++; X2++; break;
-                case Direction.Down: Y++; break;
-                case Direction.Left: X1--; X2--; break;
-            }
-            EditonProgram.Invalidate(this);
+            return
+                x == X ||
+                (Direction == Direction.Right && x >= X && x <= JoinUpWith.X) ||
+                (Direction == Direction.Left && x <= X && x >= JoinUpWith.X);
         }
-
-        private Action getUndo()
+        public override bool StoppableAtY(int y)
         {
-            var x1 = X1;
-            var x2 = X2;
-            var y = Y;
-            return () =>
-            {
-                X1 = x1;
-                X2 = x2;
-                Y = y;
-            };
-        }
-
-        public override void Adjust(Direction end, Direction intoDirection)
-        {
-            switch (end)
-            {
-                case Direction.Up:
-                case Direction.Down:
-                    throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
-
-                case Direction.Right:
-                    if (intoDirection == Direction.Left)
-                        X2--;
-                    else if (intoDirection == Direction.Right)
-                        X2++;
-                    else
-                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
-                    break;
-
-                case Direction.Left:
-                    if (intoDirection == Direction.Left)
-                        X1--;
-                    else if (intoDirection == Direction.Right)
-                        X1++;
-                    else
-                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
-                    break;
-            }
-        }
-    }
-
-    [ClassifyIgnoreIfDefault, ClassifyIgnoreIfEmpty]
-    sealed class VLine : Line
-    {
-        public int X, Y1, Y2;
-        public LineType LineType;
-        public override int CenterX { get { return X; } }
-        public override int CenterY { get { return (Y1 + Y2) / 2; } }
-        public override int PosX1 { get { return X; } }
-        public override int PosX2 { get { return X + 1; } }
-        public override int PosY1 { get { return Y1; } }
-        public override int PosY2 { get { return Y2 + 1; } }
-
-        public override void Move(Direction direction)
-        {
-            EditonProgram.Invalidate(this);
-            switch (direction)
-            {
-                case Direction.Up: Y1--; Y2--; break;
-                case Direction.Right: X++; break;
-                case Direction.Down: Y1++; Y2++; break;
-                case Direction.Left: X--; break;
-            }
-            EditonProgram.Invalidate(this);
-        }
-
-        private Action getUndo()
-        {
-            var x = X;
-            var y1 = Y1;
-            var y2 = Y2;
-            return () =>
-            {
-                X = x;
-                Y1 = y1;
-                Y2 = y2;
-            };
-        }
-
-        public override void Adjust(Direction edge, Direction intoDirection)
-        {
-            switch (edge)
-            {
-                case Direction.Left:
-                case Direction.Right:
-                    throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
-
-                case Direction.Up:
-                    if (intoDirection == Direction.Up)
-                        Y1--;
-                    else if (intoDirection == Direction.Down)
-                        Y1++;
-                    else
-                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
-                    break;
-
-                case Direction.Down:
-                    if (intoDirection == Direction.Up)
-                        Y2--;
-                    else if (intoDirection == Direction.Down)
-                        Y2++;
-                    else
-                        throw new InvalidOperationException("Cannot adjust horizontal line in this way.");
-                    break;
-            }
+            return
+                y == Y ||
+                (Direction == Direction.Down && y >= Y && y <= JoinUpWith.Y) ||
+                (Direction == Direction.Up && y <= Y && y >= JoinUpWith.Y);
         }
     }
 

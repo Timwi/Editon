@@ -19,18 +19,18 @@ namespace Editon
         Double = 2
     }
 
-    enum LineLocation
+    enum Direction
     {
-        Top = 0,
+        Up = 0,
         Right = 1,
-        Bottom = 2,
+        Down = 2,
         Left = 3
     }
 
     [Flags]
     enum LineChars
     {
-        TopNone = 0,
+        TopNone = LineType.None << Direction.Up,
         TopSingle = 1,
         TopDouble = 2,
 
@@ -50,13 +50,5 @@ namespace Editon
         RightMask = 3 << 2,
         BottomMask = 3 << 4,
         LeftMask = 3 << 6
-    }
-
-    enum Direction
-    {
-        Up = 0,
-        Right = 1,
-        Down = 2,
-        Left = 3
     }
 }
