@@ -111,15 +111,6 @@ namespace Editon
                     if (top == LineType.Single && right == LineType.Single && bottom == LineType.Single && left == LineType.Single)
                         continue;
 
-                    result.Items.Add(new Box
-                    {
-                        X = x,
-                        Y = y,
-                        Width = width,
-                        Height = height,
-                        LineTypes = Helpers.MakeDictionary(top, right, bottom, left)
-                    });
-
                     for (int xx = 0; xx <= width; xx++)
                     {
                         visited[x + xx][y] = true;
@@ -131,20 +122,31 @@ namespace Editon
                         visited[x + width][y + yy] = true;
                     }
 
+                    var nodes = new List<Node>();
+                    var box = new Box
+                    {
+                        X = x,
+                        Y = y,
+                        Width = width,
+                        Height = height,
+                        LineTypes = Helpers.MakeDictionary(top, right, bottom, left)
+                    };
+                    result.Items.Add(box);
+
                     // Search for lines starting along top and bottom
                     for (int i = x + 1; i < x + width; i++)
                     {
                         LineType topOut = source.TopLine(i, y), topIn = source.BottomLine(i, y);
                         if (topOut != LineType.None || topIn != LineType.None)
                         {
-                            result.Items.Add(new Node { X = i, Y = y, LineTypes = Helpers.MakeDictionary(topOut, LineType.None, topIn, LineType.None) });
+                            nodes.Add(new Node { X = i, Y = y, LineTypes = Helpers.MakeDictionary(topOut, LineType.None, topIn, LineType.None), JoinedUpWithBox = box });
                             edgeFromBox[i][y] = true;
                         }
 
                         LineType bottomOut = source.BottomLine(i, y + height), bottomIn = source.TopLine(i, y + height);
                         if (bottomOut != LineType.None || bottomIn != LineType.None)
                         {
-                            result.Items.Add(new Node { X = i, Y = y + height, LineTypes = Helpers.MakeDictionary(bottomIn, LineType.None, bottomOut, LineType.None) });
+                            nodes.Add(new Node { X = i, Y = y + height, LineTypes = Helpers.MakeDictionary(bottomIn, LineType.None, bottomOut, LineType.None), JoinedUpWithBox = box });
                             edgeFromBox[i][y + height] = true;
                         }
                     }
@@ -155,17 +157,20 @@ namespace Editon
                         LineType leftOut = source.LeftLine(x, j), leftIn = source.RightLine(x, j);
                         if (leftOut != LineType.None || leftIn != LineType.None)
                         {
-                            result.Items.Add(new Node { X = x, Y = j, LineTypes = Helpers.MakeDictionary(LineType.None, leftIn, LineType.None, leftOut) });
+                            nodes.Add(new Node { X = x, Y = j, LineTypes = Helpers.MakeDictionary(LineType.None, leftIn, LineType.None, leftOut), JoinedUpWithBox = box });
                             edgeFromBox[x][j] = true;
                         }
 
                         LineType rightOut = source.RightLine(x + width, j), rightIn = source.LeftLine(x + width, j);
                         if (rightOut != LineType.None || rightIn != LineType.None)
                         {
-                            result.Items.Add(new Node { X = x + width, Y = j, LineTypes = Helpers.MakeDictionary(LineType.None, rightOut, LineType.None, rightIn) });
+                            nodes.Add(new Node { X = x + width, Y = j, LineTypes = Helpers.MakeDictionary(LineType.None, rightOut, LineType.None, rightIn), JoinedUpWithBox = box });
                             edgeFromBox[x + width][j] = true;
                         }
                     }
+
+                    box.AttachedNodes = nodes.ToArray();
+                    result.Items.AddRange(nodes);
                 }
             }
 
@@ -210,14 +215,14 @@ namespace Editon
                     if (other != null && (otherEnd == null || otherEnd.X >= other.X))
                     {
                         item.IfType(
-                            (Node n) => { n.JoinUpWith[Direction.Right] = other; },
+                            (Node n) => { n.JoinedUpWith[Direction.Right] = other; },
                             (LineEnd e) => { e.JoinUpWith = other; });
-                        other.JoinUpWith[Direction.Left] = item;
+                        other.JoinedUpWith[Direction.Left] = item;
                     }
                     else if (otherEnd != null && (other == null || other.X > otherEnd.X))
                     {
                         item.IfType(
-                            (Node n) => { n.JoinUpWith[Direction.Right] = otherEnd; },
+                            (Node n) => { n.JoinedUpWith[Direction.Right] = otherEnd; },
                             (LineEnd e) => { e.JoinUpWith = otherEnd; });
                         otherEnd.JoinUpWith = item;
                     }
@@ -232,14 +237,14 @@ namespace Editon
                     if (other != null && (otherEnd == null || otherEnd.Y >= other.Y))
                     {
                         item.IfType(
-                            (Node n) => { n.JoinUpWith[Direction.Down] = other; },
+                            (Node n) => { n.JoinedUpWith[Direction.Down] = other; },
                             (LineEnd e) => { e.JoinUpWith = other; });
-                        other.JoinUpWith[Direction.Up] = item;
+                        other.JoinedUpWith[Direction.Up] = item;
                     }
                     else if (otherEnd != null && (other == null || other.Y > otherEnd.Y))
                     {
                         item.IfType(
-                            (Node n) => { n.JoinUpWith[Direction.Down] = otherEnd; },
+                            (Node n) => { n.JoinedUpWith[Direction.Down] = otherEnd; },
                             (LineEnd e) => { e.JoinUpWith = otherEnd; });
                         otherEnd.JoinUpWith = item;
                     }
@@ -249,7 +254,7 @@ namespace Editon
             }
 
             // We need _hasLineCache for the following
-            bool[][] hasLine;
+            Tuple<Item, Direction>[][] hasLine;
             getFileChars(result.Items, out hasLine, ignoreTextAreas: true);
 
             // Determine the location of text lines within every box
@@ -265,7 +270,7 @@ namespace Editon
                     {
                         var x = box.X + bx;
 
-                        if (hasLine[x][y])
+                        if (hasLine[x][y] != null)
                         {
                             if (curTextLine != null)
                             {

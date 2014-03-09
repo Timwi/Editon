@@ -12,6 +12,7 @@ namespace Editon
 
         public virtual void Move(Direction direction)
         {
+            EditonProgram.Invalidate(X, Y, X + 1, Y + 1);
             switch (direction)
             {
                 case Direction.Up: Y--; break;
@@ -19,6 +20,7 @@ namespace Editon
                 case Direction.Down: Y++; break;
                 case Direction.Left: X--; break;
             }
+            EditonProgram.Invalidate(X, Y, X + 1, Y + 1);
         }
 
         public abstract bool ContainsX(int x);
@@ -33,6 +35,7 @@ namespace Editon
     {
         public int Width, Height;
         public TextLine[][] TextAreas;
+        public Node[] AttachedNodes;
 
         [ClassifyNotNull]
         public AutoDictionary<Direction, LineType> LineTypes = Helpers.MakeDictionary(LineType.Single, LineType.Single, LineType.Single, LineType.Single);
@@ -104,22 +107,23 @@ namespace Editon
     sealed class Node : NonBoxItem
     {
         public AutoDictionary<Direction, LineType> LineTypes = new AutoDictionary<Direction, LineType>();
-        public AutoDictionary<Direction, Item> JoinUpWith = new AutoDictionary<Direction, Item>();
+        public AutoDictionary<Direction, Item> JoinedUpWith = new AutoDictionary<Direction, Item>();
+        public Box JoinedUpWithBox = null;
         public override bool ContainsX(int x) { return x == X; }
         public override bool ContainsY(int y) { return y == Y; }
         public override bool StoppableAtX(int x)
         {
             return
                 x == X ||
-                (LineTypes[Direction.Right] != LineType.None && x >= X && x <= JoinUpWith[Direction.Right].X) ||
-                (LineTypes[Direction.Left] != LineType.None && x <= X && x >= JoinUpWith[Direction.Left].X);
+                (LineTypes[Direction.Right] != LineType.None && x >= X && x <= JoinedUpWith[Direction.Right].X) ||
+                (LineTypes[Direction.Left] != LineType.None && x <= X && x >= JoinedUpWith[Direction.Left].X);
         }
         public override bool StoppableAtY(int y)
         {
             return
                 y == Y ||
-                (LineTypes[Direction.Down] != LineType.None && y >= Y && y <= JoinUpWith[Direction.Down].Y) ||
-                (LineTypes[Direction.Up] != LineType.None && y <= Y && y >= JoinUpWith[Direction.Up].Y);
+                (LineTypes[Direction.Down] != LineType.None && y >= Y && y <= JoinedUpWith[Direction.Down].Y) ||
+                (LineTypes[Direction.Up] != LineType.None && y <= Y && y >= JoinedUpWith[Direction.Up].Y);
         }
     }
 

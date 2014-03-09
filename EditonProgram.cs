@@ -32,7 +32,7 @@ namespace Editon
         static string _filePath;
         static bool _fileChanged;
         static string[] _fileCharsCache;
-        static bool[][] _hasLineCache;
+        static Tuple<Item, Direction>[][] _hasLineCache;
 
         static EditMode _mode;
         static int _cursorX, _cursorY;
@@ -133,7 +133,7 @@ namespace Editon
                 _file = Parse(filePath);
                 _filePath = filePath;
                 _fileChanged = false;
-                invalidate(0, 0, Console.BufferWidth, Console.BufferHeight);
+                Invalidate(0, 0, Console.BufferWidth, Console.BufferHeight);
                 Console.Title = Path.GetFileName(_filePath) + " — Editon";
                 updateAfterEdit();
             }
@@ -189,8 +189,8 @@ namespace Editon
                 Invalidate(prevSel);
                 Invalidate(_selectedItem);
             }
-            invalidate(prevX - 1, prevY - 1, prevX + 1, prevY + 1);
-            invalidate(_cursorX - 1, _cursorY - 1, _cursorX + 1, _cursorY + 1);
+            Invalidate(prevX - 1, prevY - 1, prevX + 1, prevY + 1);
+            Invalidate(_cursorX - 1, _cursorY - 1, _cursorX + 1, _cursorY + 1);
         }
 
         static void redrawIfNecessary()
@@ -266,14 +266,14 @@ namespace Editon
             _fileCharsCache = getFileChars(_file.Items, out _hasLineCache);
         }
 
-        static string[] getFileChars(List<Item> items, out bool[][] hasLine, bool ignoreTextAreas = false)
+        static string[] getFileChars(List<Item> items, out Tuple<Item, Direction>[][] hasLine, bool ignoreTextAreas = false)
         {
             var dic = new Dictionary<int, Dictionary<int, LineChars>>();
-            var hasLineRet = Ut.NewArray<bool>(items.MaxOrDefault(i => i.X2, 0), items.MaxOrDefault(i => i.Y2, 0));
-            var set = Ut.Lambda((int x, int y, LineChars lc) =>
+            var hasLineRet = Ut.NewArray<Tuple<Item, Direction>>(items.MaxOrDefault(i => i.X2, 0), items.MaxOrDefault(i => i.Y2, 0));
+            var set = Ut.Lambda((int x, int y, LineChars lc, Tuple<Item, Direction> tup) =>
             {
                 dic.BitwiseOrSafe(x, y, lc);
-                hasLineRet[x][y] = true;
+                hasLineRet[x][y] = tup;
             });
             foreach (var item in items)
             {
@@ -282,17 +282,21 @@ namespace Editon
                     {
                         for (int x = 0; x < box.Width; x++)
                         {
-                            set(box.X + x, box.Y, box.LineTypes[Direction.Up].At(Direction.Right));
-                            set(box.X + x + 1, box.Y, box.LineTypes[Direction.Up].At(Direction.Left));
-                            set(box.X + x, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Right));
-                            set(box.X + x + 1, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Left));
+                            var tup = new Tuple<Item, Direction>(box, Direction.Up);
+                            set(box.X + x, box.Y, box.LineTypes[Direction.Up].At(Direction.Right), tup);
+                            set(box.X + x + 1, box.Y, box.LineTypes[Direction.Up].At(Direction.Left), tup);
+                            tup = new Tuple<Item, Direction>(box, Direction.Down);
+                            set(box.X + x, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Right), tup);
+                            set(box.X + x + 1, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Left), tup);
                         }
                         for (int y = 0; y < box.Height; y++)
                         {
-                            set(box.X, box.Y + y, box.LineTypes[Direction.Left].At(Direction.Down));
-                            set(box.X, box.Y + y + 1, box.LineTypes[Direction.Left].At(Direction.Up));
-                            set(box.X + box.Width, box.Y + y, box.LineTypes[Direction.Right].At(Direction.Down));
-                            set(box.X + box.Width, box.Y + y + 1, box.LineTypes[Direction.Right].At(Direction.Up));
+                            var tup = new Tuple<Item, Direction>(box, Direction.Left);
+                            set(box.X, box.Y + y, box.LineTypes[Direction.Left].At(Direction.Down), tup);
+                            set(box.X, box.Y + y + 1, box.LineTypes[Direction.Left].At(Direction.Up), tup);
+                            tup = new Tuple<Item, Direction>(box, Direction.Right);
+                            set(box.X + box.Width, box.Y + y, box.LineTypes[Direction.Right].At(Direction.Down), tup);
+                            set(box.X + box.Width, box.Y + y + 1, box.LineTypes[Direction.Right].At(Direction.Up), tup);
                         }
                     },
                     (Node n) =>
@@ -300,53 +304,57 @@ namespace Editon
                         var lineType = n.LineTypes[Direction.Right];
                         if (lineType != LineType.None)
                         {
-                            var x2 = n.JoinUpWith[Direction.Right].X;
+                            var x2 = n.JoinedUpWith[Direction.Right].X;
+                            var tup = new Tuple<Item, Direction>(n, Direction.Right);
                             for (int x = n.X; x < x2; x++)
                             {
-                                set(x, n.Y, lineType.At(Direction.Right));
-                                set(x + 1, n.Y, lineType.At(Direction.Left));
+                                set(x, n.Y, lineType.At(Direction.Right), tup);
+                                set(x + 1, n.Y, lineType.At(Direction.Left), tup);
                             }
-                            if (n.JoinUpWith[Direction.Right] is LineEnd)
-                                set(x2, n.Y, lineType.At(Direction.Right));
+                            if (n.JoinedUpWith[Direction.Right] is LineEnd)
+                                set(x2, n.Y, lineType.At(Direction.Right), tup);
                         }
                         lineType = n.LineTypes[Direction.Down];
                         if (lineType != LineType.None)
                         {
-                            var y2 = n.JoinUpWith[Direction.Down].Y;
+                            var y2 = n.JoinedUpWith[Direction.Down].Y;
+                            var tup = new Tuple<Item, Direction>(n, Direction.Down);
                             for (int y = n.Y; y < y2; y++)
                             {
-                                set(n.X, y, lineType.At(Direction.Down));
-                                set(n.X, y + 1, lineType.At(Direction.Up));
+                                set(n.X, y, lineType.At(Direction.Down), tup);
+                                set(n.X, y + 1, lineType.At(Direction.Up), tup);
                             }
-                            if (n.JoinUpWith[Direction.Down] is LineEnd)
-                                set(n.X, y2, lineType.At(Direction.Down));
+                            if (n.JoinedUpWith[Direction.Down] is LineEnd)
+                                set(n.X, y2, lineType.At(Direction.Down), tup);
                         }
                     },
                     (LineEnd e) =>
                     {
                         if (e.Direction == Direction.Right)
                         {
-                            set(e.X, e.Y, e.LineType.At(Direction.Left));
+                            var tup = new Tuple<Item, Direction>(e, Direction.Right);
+                            set(e.X, e.Y, e.LineType.At(Direction.Left), tup);
                             var x2 = e.JoinUpWith.X;
                             for (int x = e.X; x < x2; x++)
                             {
-                                set(x, e.Y, e.LineType.At(Direction.Right));
-                                set(x + 1, e.Y, e.LineType.At(Direction.Left));
+                                set(x, e.Y, e.LineType.At(Direction.Right), tup);
+                                set(x + 1, e.Y, e.LineType.At(Direction.Left), tup);
                             }
                             if (e.JoinUpWith is LineEnd)
-                                set(x2, e.Y, e.LineType.At(Direction.Right));
+                                set(x2, e.Y, e.LineType.At(Direction.Right), tup);
                         }
                         else if (e.Direction == Direction.Down)
                         {
-                            set(e.X, e.Y, e.LineType.At(Direction.Up));
+                            var tup = new Tuple<Item, Direction>(e, Direction.Down);
+                            set(e.X, e.Y, e.LineType.At(Direction.Up), tup);
                             var y2 = e.JoinUpWith.Y;
                             for (int y = e.Y; y < y2; y++)
                             {
-                                set(e.X, y, e.LineType.At(Direction.Down));
-                                set(e.X, y + 1, e.LineType.At(Direction.Up));
+                                set(e.X, y, e.LineType.At(Direction.Down), tup);
+                                set(e.X, y + 1, e.LineType.At(Direction.Up), tup);
                             }
                             if (e.JoinUpWith is LineEnd)
-                                set(e.X, y2, e.LineType.At(Direction.Down));
+                                set(e.X, y2, e.LineType.At(Direction.Down), tup);
                         }
                     });
             }
@@ -381,14 +389,15 @@ namespace Editon
             return result;
         }
 
+        static void invalidateAll() { Invalidate(_horizScroll.Value, _vertScroll.Value, _horizScroll.Value + Console.BufferWidth, _vertScroll.Value + Console.BufferHeight); }
+
         public static void Invalidate(Item item)
         {
             if (item != null)
-                invalidate(item.X, item.Y, item.X2, item.Y2);
+                Invalidate(item.X, item.Y, item.X2, item.Y2);
         }
-        static void invalidateAll() { invalidate(_horizScroll.Value, _vertScroll.Value, _horizScroll.Value + Console.BufferWidth, _vertScroll.Value + Console.BufferHeight); }
 
-        static void invalidate(int x1, int y1, int x2, int y2)
+        public static void Invalidate(int x1, int y1, int x2, int y2)
         {
             _fileCharsCache = null;
             if (!_invalidatedRegion)
@@ -424,7 +433,53 @@ namespace Editon
             if (_selectedItem == null)
                 return;
 
-            throw new NotImplementedException();
+            ensureFileChars();  // We need _hasLineCache to be up to date
+
+            var toMove = new HashSet<Item>();
+            if (tryMove(_selectedItem, dir, toMove))
+                foreach (var item in toMove)
+                    item.Move(dir);
+        }
+
+        static bool tryMove(Item item, Direction dir, HashSet<Item> toMove)
+        {
+            if (toMove.Contains(item))
+                return true;
+            if (item.X + dir.XOffset() < 0 || item.Y + dir.YOffset() < 0)
+                return false;
+
+            toMove.Add(item);
+            //var spacing = dir == Direction.Right || dir == Direction.Left ? _fileOptions.HSpacing : 0;
+            //var perpSpacing = dir == Direction.Up || dir == Direction.Down ? _fileOptions.HSpacing : 0;
+
+            return item.IfType(
+                // Note side-effect of calling tryMove modifies toMove
+                (Box box) => box.AttachedNodes.All(node => tryMove(node, dir, toMove)),
+
+                (Node node) =>
+                {
+                    // Take care of obstacles in the direction we’re moving
+                    var other = _file.Items
+                        .Where(oth => oth != node && oth.X.Between(node.X + dir.XOffset(), node.X + dir.XOffset() * (_fileOptions.HSpacing + 1)) && oth.Y == node.Y + dir.YOffset())
+                        .OrderIn(dir)
+                        .FirstOrDefault();
+
+                    if (_hasLineCache[node.X + dir.XOffset()][node.Y + dir.YOffset()])
+                    {
+                    }
+
+                    // Case 1: There are no perpendicular lines going from this node.
+                    // Case 2: We can move all the perpendicular lines without colliding with anything.
+                    // Case 3: We can avoid a collision with something by adding a kink.
+                    // Case 4: We cannot avoid a collision; we have to move other stuff out of the way.
+                },
+                (LineEnd le) =>
+                {
+                },
+                otherwise =>
+                {
+                    throw new InvalidOperationException("Unexpected type of item.");
+                });
         }
     }
 }

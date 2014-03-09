@@ -10,6 +10,23 @@ namespace Editon
     {
         public static Direction[] Directions = new[] { Direction.Up, Direction.Right, Direction.Down, Direction.Left };
 
+        public static bool Between(this int val, int one, int two)
+        {
+            return val >= Math.Min(one, two) && val <= Math.Max(one, two);
+        }
+
+        public static IEnumerable<Item> OrderIn(this IEnumerable<Item> source, Direction dir)
+        {
+            switch (dir)
+            {
+                case Direction.Up: return source.OrderByDescending(i => i.Y);
+                case Direction.Right: return source.OrderBy(i => i.X);
+                case Direction.Down: return source.OrderBy(i => i.Y);
+                case Direction.Left: return source.OrderByDescending(i => i.X);
+            }
+            throw new InvalidOperationException("Invalid direction.");
+        }
+
         public static void BitwiseOrSafe<TKey1, TKey2>(this Dictionary<TKey1, Dictionary<TKey2, LineChars>> source, TKey1 key1, TKey2 key2, LineChars value)
         {
             if (source == null)
