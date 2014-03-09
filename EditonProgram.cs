@@ -31,12 +31,10 @@ namespace Editon
         static FncFile _file;
         static string _filePath;
         static bool _fileChanged;
-        static string[] _fileCharsCache;
-        static Tuple<Item, Direction>[][] _hasLineCache;
 
         static EditMode _mode;
         static int _cursorX, _cursorY;
-        static Item _selectedItem;
+        static Box _selectedBox;
         static int _selectedBoxTextAreaIndex = -1;
 
         // X1,Y1 = inclusive; X2,Y2 = exclusive
@@ -149,19 +147,14 @@ namespace Editon
         {
             var prevX = _cursorX;
             var prevY = _cursorY;
-            var prevSel = _selectedItem;
+            var prevSel = _selectedBox;
             var prevEditingTextAreaIndex = _selectedBoxTextAreaIndex;
 
             _cursorX = x;
             _cursorY = y;
 
-            _selectedItem =
-                (Item) _file.Items.OfType<NonBoxItem>().FirstOrDefault(item => item.X == _cursorX && item.Y == _cursorY) ??
-                (Item) _file.Items.OfType<Box>().FirstOrDefault(box => box.Contains(_cursorX, _cursorY));
-
-            _selectedBoxTextAreaIndex = _selectedItem.IfType(
-                (Box box) => box.TextAreas.IndexOf(area => area.Any(line => _cursorY == line.Y && _cursorX >= line.X && _cursorX < line.X + line.Content.Length)),
-                otherwise => -1);
+            _selectedBox = _file.Boxes.FirstOrDefault(box => box.Contains(_cursorX, _cursorY));
+            _selectedBoxTextAreaIndex = _selectedBox == null ? -1 : _selectedBox.TextAreas.IndexOf(area => area.Any(line => _cursorY == line.Y && _cursorX >= line.X && _cursorX < line.X + line.Content.Length));
 
             while (_cursorX >= _horizScroll.Value + EditorWidth)
             {
@@ -184,10 +177,10 @@ namespace Editon
                 invalidateAll();
             }
 
-            if (_selectedItem != prevSel || _selectedBoxTextAreaIndex != prevEditingTextAreaIndex)
+            if (_selectedBox != prevSel || _selectedBoxTextAreaIndex != prevEditingTextAreaIndex)
             {
                 Invalidate(prevSel);
-                Invalidate(_selectedItem);
+                Invalidate(_selectedBox);
             }
             Invalidate(prevX - 1, prevY - 1, prevX + 1, prevY + 1);
             Invalidate(_cursorX - 1, _cursorY - 1, _cursorX + 1, _cursorY + 1);
@@ -205,8 +198,6 @@ namespace Editon
             if ((_invalidatedRegionX1 >= _horizScroll.Value + EditorWidth) || (_invalidatedRegionY1 >= _vertScroll.Value + EditorHeight) || (_invalidatedRegionX2 <= _horizScroll.Value) || (_invalidatedRegionY2 <= _vertScroll.Value))
                 return;
 
-            ensureFileChars();
-
             // For now, it is fast enough to update entire lines. This fixes some console rendering bugs (e.g. gaps in the box-drawing characters).
             _invalidatedRegionX1 = 0;
             _invalidatedRegionX2 = _horizScroll.Value + Console.BufferWidth;
@@ -223,30 +214,25 @@ namespace Editon
                 var l = Math.Min(_invalidatedRegionX2, _horizScroll.Value + EditorWidth) - s;
                 Console.SetCursorPosition(s - _horizScroll.Value + EditorLeft, bufY);
 
-                if (y < _fileCharsCache.Length)
+                var str = _file.Source[y].SubstringSafe(s, l).PadRight(l).Color(ConsoleColor.Gray);
+                if (_selectedBox != null && y >= _selectedBox.Y && y < _selectedBox.Y2 && s + l > _selectedBox.X && s < _selectedBox.X2)
                 {
-                    var str = _fileCharsCache[y].SubstringSafe(s, l).PadRight(l).Color(ConsoleColor.Gray);
-                    if (_selectedItem != null && y >= _selectedItem.Y && y < _selectedItem.Y2 && s + l > _selectedItem.X && s < _selectedItem.X2)
-                    {
-                        var st = Math.Max(0, _selectedItem.X - s);
-                        str = str.ColorSubstring(st, Math.Min(_selectedItem.X2 - _selectedItem.X, l - st), ConsoleColor.White, _mode == EditMode.Moving ? ConsoleColor.DarkRed : ConsoleColor.DarkBlue);
-                    }
-                    if (_mode == EditMode.Cursor)
-                    {
-                        if (_selectedItem != null && _selectedBoxTextAreaIndex != -1)
-                            foreach (var line in ((Box) _selectedItem).TextAreas[_selectedBoxTextAreaIndex])
-                                if (line.Y == y && line.X < s + l && line.X + line.Content.Length >= s)
-                                {
-                                    var st = Math.Max(0, line.X - s);
-                                    str = str.ColorSubstringBackground(st, Math.Min(line.Content.Length, l - st), ConsoleColor.DarkCyan);
-                                }
-                        if (_cursorY == y && _cursorX >= s && _cursorX < s + l)
-                            str = str.ColorSubstringBackground(_cursorX - s, 1, _selectedBoxTextAreaIndex != -1 ? ConsoleColor.Cyan : _selectedItem != null ? ConsoleColor.Blue : ConsoleColor.DarkBlue);
-                    }
-                    ConsoleUtil.Write(str);
+                    var st = Math.Max(0, _selectedBox.X - s);
+                    str = str.ColorSubstring(st, Math.Min(_selectedBox.X2 - _selectedBox.X, l - st), ConsoleColor.White, _mode == EditMode.Moving ? ConsoleColor.DarkRed : ConsoleColor.DarkBlue);
                 }
-                else
-                    Console.Write(new string(' ', l));
+                if (_mode == EditMode.Cursor)
+                {
+                    if (_selectedBox != null && _selectedBoxTextAreaIndex != -1)
+                        foreach (var line in ((Box) _selectedBox).TextAreas[_selectedBoxTextAreaIndex])
+                            if (line.Y == y && line.X < s + l && line.X + line.Content.Length >= s)
+                            {
+                                var st = Math.Max(0, line.X - s);
+                                str = str.ColorSubstringBackground(st, Math.Min(line.Content.Length, l - st), ConsoleColor.DarkCyan);
+                            }
+                    if (_cursorY == y && _cursorX >= s && _cursorX < s + l)
+                        str = str.ColorSubstringBackground(_cursorX - s, 1, _selectedBoxTextAreaIndex != -1 ? ConsoleColor.Cyan : _selectedBox != null ? ConsoleColor.Blue : ConsoleColor.DarkBlue);
+                }
+                ConsoleUtil.Write(str);
             }
 
             if (
@@ -259,136 +245,6 @@ namespace Editon
             }
         }
 
-        static void ensureFileChars()
-        {
-            if (_fileCharsCache != null)
-                return;
-            _fileCharsCache = getFileChars(_file.Items, out _hasLineCache);
-        }
-
-        static string[] getFileChars(List<Item> items, out Tuple<Item, Direction>[][] hasLine, bool ignoreTextAreas = false)
-        {
-            var dic = new Dictionary<int, Dictionary<int, LineChars>>();
-            var hasLineRet = Ut.NewArray<Tuple<Item, Direction>>(items.MaxOrDefault(i => i.X2, 0), items.MaxOrDefault(i => i.Y2, 0));
-            var set = Ut.Lambda((int x, int y, LineChars lc, Tuple<Item, Direction> tup) =>
-            {
-                dic.BitwiseOrSafe(x, y, lc);
-                hasLineRet[x][y] = tup;
-            });
-            foreach (var item in items)
-            {
-                item.IfType(
-                    (Box box) =>
-                    {
-                        for (int x = 0; x < box.Width; x++)
-                        {
-                            var tup = new Tuple<Item, Direction>(box, Direction.Up);
-                            set(box.X + x, box.Y, box.LineTypes[Direction.Up].At(Direction.Right), tup);
-                            set(box.X + x + 1, box.Y, box.LineTypes[Direction.Up].At(Direction.Left), tup);
-                            tup = new Tuple<Item, Direction>(box, Direction.Down);
-                            set(box.X + x, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Right), tup);
-                            set(box.X + x + 1, box.Y + box.Height, box.LineTypes[Direction.Down].At(Direction.Left), tup);
-                        }
-                        for (int y = 0; y < box.Height; y++)
-                        {
-                            var tup = new Tuple<Item, Direction>(box, Direction.Left);
-                            set(box.X, box.Y + y, box.LineTypes[Direction.Left].At(Direction.Down), tup);
-                            set(box.X, box.Y + y + 1, box.LineTypes[Direction.Left].At(Direction.Up), tup);
-                            tup = new Tuple<Item, Direction>(box, Direction.Right);
-                            set(box.X + box.Width, box.Y + y, box.LineTypes[Direction.Right].At(Direction.Down), tup);
-                            set(box.X + box.Width, box.Y + y + 1, box.LineTypes[Direction.Right].At(Direction.Up), tup);
-                        }
-                    },
-                    (Node n) =>
-                    {
-                        var lineType = n.LineTypes[Direction.Right];
-                        if (lineType != LineType.None)
-                        {
-                            var x2 = n.JoinedUpWith[Direction.Right].X;
-                            var tup = new Tuple<Item, Direction>(n, Direction.Right);
-                            for (int x = n.X; x < x2; x++)
-                            {
-                                set(x, n.Y, lineType.At(Direction.Right), tup);
-                                set(x + 1, n.Y, lineType.At(Direction.Left), tup);
-                            }
-                            if (n.JoinedUpWith[Direction.Right] is LineEnd)
-                                set(x2, n.Y, lineType.At(Direction.Right), tup);
-                        }
-                        lineType = n.LineTypes[Direction.Down];
-                        if (lineType != LineType.None)
-                        {
-                            var y2 = n.JoinedUpWith[Direction.Down].Y;
-                            var tup = new Tuple<Item, Direction>(n, Direction.Down);
-                            for (int y = n.Y; y < y2; y++)
-                            {
-                                set(n.X, y, lineType.At(Direction.Down), tup);
-                                set(n.X, y + 1, lineType.At(Direction.Up), tup);
-                            }
-                            if (n.JoinedUpWith[Direction.Down] is LineEnd)
-                                set(n.X, y2, lineType.At(Direction.Down), tup);
-                        }
-                    },
-                    (LineEnd e) =>
-                    {
-                        if (e.Direction == Direction.Right)
-                        {
-                            var tup = new Tuple<Item, Direction>(e, Direction.Right);
-                            set(e.X, e.Y, e.LineType.At(Direction.Left), tup);
-                            var x2 = e.JoinUpWith.X;
-                            for (int x = e.X; x < x2; x++)
-                            {
-                                set(x, e.Y, e.LineType.At(Direction.Right), tup);
-                                set(x + 1, e.Y, e.LineType.At(Direction.Left), tup);
-                            }
-                            if (e.JoinUpWith is LineEnd)
-                                set(x2, e.Y, e.LineType.At(Direction.Right), tup);
-                        }
-                        else if (e.Direction == Direction.Down)
-                        {
-                            var tup = new Tuple<Item, Direction>(e, Direction.Down);
-                            set(e.X, e.Y, e.LineType.At(Direction.Up), tup);
-                            var y2 = e.JoinUpWith.Y;
-                            for (int y = e.Y; y < y2; y++)
-                            {
-                                set(e.X, y, e.LineType.At(Direction.Down), tup);
-                                set(e.X, y + 1, e.LineType.At(Direction.Up), tup);
-                            }
-                            if (e.JoinUpWith is LineEnd)
-                                set(e.X, y2, e.LineType.At(Direction.Down), tup);
-                        }
-                    });
-            }
-
-            var sb = new StringBuilder();
-            var width = dic.Keys.Max();
-            var height = dic.Values.SelectMany(val => val.Keys).Max();
-            var result = new string[height + 1];
-            for (int y = 0; y <= height; y++)
-            {
-                for (int x = 0; x <= width; x++)
-                {
-                    var val = dic.Get(x, y, (LineChars) 0);
-                    sb.Append(" │║─└╙═╘╚││║┌├╟╒╞╠║║║╓╟╟╔╠╠─┘╜─┴╨═╧╩┐┤╢┬┼╫╤╪╬╖╢╢╥╫╫╦╬╬═╛╝═╧╩═╧╩╕╡╣╤╪╬╤╪╬╗╣╣╦╬╬╦╬╬"[
-                        ((int) (val & LineChars.TopMask) >> (2 * (int) (int) Direction.Up)) +
-                        ((int) (val & LineChars.RightMask) >> (2 * (int) (int) Direction.Right)) * 3 +
-                        ((int) (val & LineChars.BottomMask) >> (2 * (int) (int) Direction.Down)) * 3 * 3 +
-                        ((int) (val & LineChars.LeftMask) >> (2 * (int) (int) Direction.Left)) * 3 * 3 * 3
-                    ]);
-                }
-                result[y] = sb.ToString();
-                sb.Clear();
-            }
-
-            if (!ignoreTextAreas)
-                foreach (var box in items.OfType<Box>())
-                    foreach (var area in box.TextAreas)
-                        foreach (var line in area)
-                            result[line.Y] = result[line.Y].Substring(0, line.X) + line.Content + result[line.Y].Substring(line.X + line.Content.Length);
-
-            hasLine = hasLineRet;
-            return result;
-        }
-
         static void invalidateAll() { Invalidate(_horizScroll.Value, _vertScroll.Value, _horizScroll.Value + Console.BufferWidth, _vertScroll.Value + Console.BufferHeight); }
 
         public static void Invalidate(Item item)
@@ -399,7 +255,6 @@ namespace Editon
 
         public static void Invalidate(int x1, int y1, int x2, int y2)
         {
-            _fileCharsCache = null;
             if (!_invalidatedRegion)
             {
                 _invalidatedRegionX1 = x1;
@@ -419,8 +274,8 @@ namespace Editon
 
         static void updateAfterEdit()
         {
-            _horizScroll.Max = _file.Items.Max(i => i.X2) + 1;
-            _vertScroll.Max = _file.Items.Max(i => i.Y2) + 1;
+            _horizScroll.Max = _file.Boxes.MaxOrDefault(i => i.X2, 0) + 1;
+            _vertScroll.Max = _file.Boxes.MaxOrDefault(i => i.Y2, 0) + 1;
         }
 
         static bool canDestroy()
@@ -430,56 +285,15 @@ namespace Editon
 
         static void move(Direction dir)
         {
-            if (_selectedItem == null)
+            if (_selectedBox == null)
                 return;
 
-            ensureFileChars();  // We need _hasLineCache to be up to date
+            //ensureFileChars();  // We need _hasLineCache to be up to date
 
-            var toMove = new HashSet<Item>();
-            if (tryMove(_selectedItem, dir, toMove))
-                foreach (var item in toMove)
-                    item.Move(dir);
-        }
-
-        static bool tryMove(Item item, Direction dir, HashSet<Item> toMove)
-        {
-            if (toMove.Contains(item))
-                return true;
-            if (item.X + dir.XOffset() < 0 || item.Y + dir.YOffset() < 0)
-                return false;
-
-            toMove.Add(item);
-            //var spacing = dir == Direction.Right || dir == Direction.Left ? _fileOptions.HSpacing : 0;
-            //var perpSpacing = dir == Direction.Up || dir == Direction.Down ? _fileOptions.HSpacing : 0;
-
-            return item.IfType(
-                // Note side-effect of calling tryMove modifies toMove
-                (Box box) => box.AttachedNodes.All(node => tryMove(node, dir, toMove)),
-
-                (Node node) =>
-                {
-                    // Take care of obstacles in the direction we’re moving
-                    var other = _file.Items
-                        .Where(oth => oth != node && oth.X.Between(node.X + dir.XOffset(), node.X + dir.XOffset() * (_fileOptions.HSpacing + 1)) && oth.Y == node.Y + dir.YOffset())
-                        .OrderIn(dir)
-                        .FirstOrDefault();
-
-                    if (_hasLineCache[node.X + dir.XOffset()][node.Y + dir.YOffset()])
-                    {
-                    }
-
-                    // Case 1: There are no perpendicular lines going from this node.
-                    // Case 2: We can move all the perpendicular lines without colliding with anything.
-                    // Case 3: We can avoid a collision with something by adding a kink.
-                    // Case 4: We cannot avoid a collision; we have to move other stuff out of the way.
-                },
-                (LineEnd le) =>
-                {
-                },
-                otherwise =>
-                {
-                    throw new InvalidOperationException("Unexpected type of item.");
-                });
+            //var toMove = new HashSet<Item>();
+            //if (tryMove(_selectedBox, dir, toMove))
+            //    foreach (var item in toMove)
+            //        item.Move(dir);
         }
     }
 }

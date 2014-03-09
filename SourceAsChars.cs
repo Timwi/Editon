@@ -7,37 +7,44 @@ namespace Editon
 {
     sealed class SourceAsChars
     {
-        public char[][] Chars { get; private set; }
+        private string[] _lines;
 
-        public SourceAsChars(char[][] chars) { Chars = chars; }
+        public string this[int index] { get { return index < 0 || index >= _lines.Length ? "" : _lines[index]; } }
+
+        public SourceAsChars(string[] lines)
+        {
+            if (lines == null)
+                throw new ArgumentNullException("lines");
+            _lines = lines;
+        }
 
         public LineType TopLine(int x, int y)
         {
             return
-                y < 0 || y >= Chars.Length || x < 0 || x >= Chars[y].Length ? LineType.None :
-                "│└┘├┤┴╛╘╡╧┼╞╪".Contains(Chars[y][x]) ? LineType.Single :
-                "║╚╝╠╣╩╜╙╢╨╬╟╫".Contains(Chars[y][x]) ? LineType.Double : LineType.None;
+                y < 0 || y >= _lines.Length || x < 0 || x >= _lines[y].Length ? LineType.None :
+                "│└┘├┤┴╛╘╡╧┼╞╪".Contains(_lines[y][x]) ? LineType.Single :
+                "║╚╝╠╣╩╜╙╢╨╬╟╫".Contains(_lines[y][x]) ? LineType.Double : LineType.None;
         }
         public LineType LeftLine(int x, int y)
         {
             return
-                y < 0 || y >= Chars.Length || x < 0 || x >= Chars[y].Length ? LineType.None :
-                "─┐┘┤┬┴╜╖╢╨╥╫┼".Contains(Chars[y][x]) ? LineType.Single :
-                "═╗╝╣╦╩╛╕╡╧╤╪╬".Contains(Chars[y][x]) ? LineType.Double : LineType.None;
+                y < 0 || y >= _lines.Length || x < 0 || x >= _lines[y].Length ? LineType.None :
+                "─┐┘┤┬┴╜╖╢╨╥╫┼".Contains(_lines[y][x]) ? LineType.Single :
+                "═╗╝╣╦╩╛╕╡╧╤╪╬".Contains(_lines[y][x]) ? LineType.Double : LineType.None;
         }
         public LineType RightLine(int x, int y)
         {
             return
-                y < 0 || y >= Chars.Length || x < 0 || x >= Chars[y].Length ? LineType.None :
-                "─└┌├┬┴╓╙╨╟╥╫┼".Contains(Chars[y][x]) ? LineType.Single :
-                "═╚╔╠╦╩╒╘╧╞╤╪╬".Contains(Chars[y][x]) ? LineType.Double : LineType.None;
+                y < 0 || y >= _lines.Length || x < 0 || x >= _lines[y].Length ? LineType.None :
+                "─└┌├┬┴╓╙╨╟╥╫┼".Contains(_lines[y][x]) ? LineType.Single :
+                "═╚╔╠╦╩╒╘╧╞╤╪╬".Contains(_lines[y][x]) ? LineType.Double : LineType.None;
         }
         public LineType BottomLine(int x, int y)
         {
             return
-                y < 0 || y >= Chars.Length || x < 0 || x >= Chars[y].Length ? LineType.None :
-                "│┌┐├┤┬╒╕╡╞╤╪┼".Contains(Chars[y][x]) ? LineType.Single :
-                "║╔╗╠╣╦╓╖╢╟╥╫╬".Contains(Chars[y][x]) ? LineType.Double : LineType.None;
+                y < 0 || y >= _lines.Length || x < 0 || x >= _lines[y].Length ? LineType.None :
+                "│┌┐├┤┬╒╕╡╞╤╪┼".Contains(_lines[y][x]) ? LineType.Single :
+                "║╔╗╠╣╦╓╖╢╟╥╫╬".Contains(_lines[y][x]) ? LineType.Double : LineType.None;
         }
         public LineType Line(int x, int y, Direction dir)
         {
@@ -52,9 +59,8 @@ namespace Editon
         }
         public bool AnyLine(int x, int y)
         {
-            return "─│┌┐└┘├┤┬┴┼═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬".Contains(Chars[y][x]);
+            return "─│┌┐└┘├┤┬┴┼═║╒╓╔╕╖╗╘╙╚╛╜╝╞╟╠╡╢╣╤╥╦╧╨╩╪╫╬".Contains(_lines[y][x]);
         }
-        public int Width { get { return Chars[0].Length; } }
-        public int Height { get { return Chars.Length; } }
+        public int NumLines { get { return _lines.Length; } }
     }
 }

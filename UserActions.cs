@@ -19,17 +19,17 @@ namespace Editon
         {
             moveCursor(
                 _cursorX,
-                _file.Items
+                _file.Boxes
                     .Where(item => item.Y < _cursorY && item.StoppableAtX(_cursorX))
                     .MaxOrDefault(item => item.Y, 0));
         }
         static void moveCursorRightFar()
         {
             moveCursor(
-                _file.Items
+                _file.Boxes
                     .Where(item => item.X > _cursorX && item.StoppableAtY(_cursorY))
                     .MinOrDefault(item => item.X, (int?) null)
-                    ?? _file.Items
+                    ?? _file.Boxes
                         .Where(item => item.ContainsY(_cursorY))
                         .MaxOrDefault(item => item.X2, 0),
                 _cursorY);
@@ -38,17 +38,17 @@ namespace Editon
         {
             moveCursor(
                 _cursorX,
-                _file.Items
+                _file.Boxes
                     .Where(item => item.Y > _cursorY && item.StoppableAtX(_cursorX))
                     .MinOrDefault(item => item.Y, (int?) null)
-                    ?? _file.Items
+                    ?? _file.Boxes
                         .Where(item => item.ContainsX(_cursorX))
                         .MaxOrDefault(item => item.Y2, 0));
         }
         static void moveCursorLeftFar()
         {
             moveCursor(
-                _file.Items
+                _file.Boxes
                     .Where(item => item.X < _cursorX && item.StoppableAtY(_cursorY))
                     .MaxOrDefault(item => item.X, 0),
                 _cursorY);
@@ -56,14 +56,14 @@ namespace Editon
         static void moveCursorHome()
         {
             moveCursor(
-                _cursorX == 0 ? _file.Items.Where(item => item.StoppableAtY(_cursorY)).MinOrDefault(item => item.X, 0) : 0,
+                _cursorX == 0 ? _file.Boxes.Where(item => item.StoppableAtY(_cursorY)).MinOrDefault(item => item.X, 0) : 0,
                 _cursorY
             );
         }
         static void moveCursorEnd()
         {
             moveCursor(
-                _file.Items.Where(item => item.StoppableAtY(_cursorY)).MaxOrDefault(item => item.X2, 0),
+                _file.Boxes.Where(item => item.StoppableAtY(_cursorY)).MaxOrDefault(item => item.X2, 0),
                 _cursorY);
         }
         static void moveCursorHomeFar()
@@ -72,7 +72,7 @@ namespace Editon
         }
         static void moveCursorEndFar()
         {
-            moveCursor(0, _file.Items.MaxOrDefault(i => i.Y2, 0));
+            moveCursor(0, _file.Boxes.MaxOrDefault(i => i.Y2, 0));
         }
         static void moveCursorPageUp()
         {
@@ -89,20 +89,20 @@ namespace Editon
 
         static void enterMoveMode()
         {
-            if (_selectedItem == null)
+            if (_selectedBox == null)
             {
                 DlgMessage.Show("No item is selected.", "Error", DlgType.Error);
                 return;
             }
 
             _mode = EditMode.Moving;
-            Invalidate(_selectedItem);
+            Invalidate(_selectedBox);
         }
         static void leaveMoveMode()
         {
             _mode = EditMode.Cursor;
-            Invalidate(_selectedItem);
-            moveCursor(_selectedItem.X, _selectedItem.Y);
+            Invalidate(_selectedBox);
+            moveCursor(_selectedBox.X, _selectedBox.Y);
         }
 
         static void moveUp() { move(Direction.Up); }

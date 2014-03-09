@@ -35,7 +35,6 @@ namespace Editon
     {
         public int Width, Height;
         public TextLine[][] TextAreas;
-        public Node[] AttachedNodes;
 
         [ClassifyNotNull]
         public AutoDictionary<Direction, LineType> LineTypes = Helpers.MakeDictionary(LineType.Single, LineType.Single, LineType.Single, LineType.Single);
@@ -100,54 +99,6 @@ namespace Editon
 
         public override int X2 { get { return X + Width + 1; } }
         public override int Y2 { get { return Y + Height + 1; } }
-    }
-
-    abstract class NonBoxItem : Item { }
-
-    sealed class Node : NonBoxItem
-    {
-        public AutoDictionary<Direction, LineType> LineTypes = new AutoDictionary<Direction, LineType>();
-        public AutoDictionary<Direction, Item> JoinedUpWith = new AutoDictionary<Direction, Item>();
-        public Box JoinedUpWithBox = null;
-        public override bool ContainsX(int x) { return x == X; }
-        public override bool ContainsY(int y) { return y == Y; }
-        public override bool StoppableAtX(int x)
-        {
-            return
-                x == X ||
-                (LineTypes[Direction.Right] != LineType.None && x >= X && x <= JoinedUpWith[Direction.Right].X) ||
-                (LineTypes[Direction.Left] != LineType.None && x <= X && x >= JoinedUpWith[Direction.Left].X);
-        }
-        public override bool StoppableAtY(int y)
-        {
-            return
-                y == Y ||
-                (LineTypes[Direction.Down] != LineType.None && y >= Y && y <= JoinedUpWith[Direction.Down].Y) ||
-                (LineTypes[Direction.Up] != LineType.None && y <= Y && y >= JoinedUpWith[Direction.Up].Y);
-        }
-    }
-
-    sealed class LineEnd : NonBoxItem
-    {
-        public Direction Direction;
-        public LineType LineType;
-        public Item JoinUpWith;
-        public override bool ContainsX(int x) { return x == X; }
-        public override bool ContainsY(int y) { return y == Y; }
-        public override bool StoppableAtX(int x)
-        {
-            return
-                x == X ||
-                (Direction == Direction.Right && x >= X && x <= JoinUpWith.X) ||
-                (Direction == Direction.Left && x <= X && x >= JoinUpWith.X);
-        }
-        public override bool StoppableAtY(int y)
-        {
-            return
-                y == Y ||
-                (Direction == Direction.Down && y >= Y && y <= JoinUpWith.Y) ||
-                (Direction == Direction.Up && y <= Y && y >= JoinUpWith.Y);
-        }
     }
 
     sealed class TextLine
