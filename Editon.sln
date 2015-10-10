@@ -1,9 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Editon", "Editon.csproj", "{A0356389-4FB8-4E69-8103-0ABCC6A3D5FA}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Util", "..\main\common\Util\Util.csproj", "{8D0FE79C-AD8D-475C-9E6F-9CAE85365B5D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Editon", "Src\Editon.csproj", "{A0356389-4FB8-4E69-8103-0ABCC6A3D5FA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
